@@ -5,134 +5,129 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quality Tracker · Gopi Knitts</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <style>
-:root{
-  --bg:#f4f3ef; --surface:#fcfcfb; --surface-2:#efeee9; --line:#dedcd4; --line-2:#ebe9e3;
-  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#85837d;
-  --accent:#2a78d6; --accent-ink:#1c5cab; --accent-soft:#e6f0fc;
-  --good:#0ca30c; --good-ink:#006300; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
-  --warn-soft:#fff4dc; --crit-soft:#fbe9e9; --ser-soft:#fdeee7;
-  --mono:'IBM Plex Mono',ui-monospace,monospace; --sans:'IBM Plex Sans',system-ui,sans-serif;
-  --r:10px;
-}
-*{box-sizing:border-box} html,body{margin:0}
-body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
-.num,td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
-header.top{position:sticky;top:0;z-index:20;background:var(--ink);color:#f0efec}
-.top-in{max-width:1280px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:24px;height:56px}
-.brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
-.brand b{font-weight:700;letter-spacing:.02em}
-.brand span{color:#a9a79f;font-size:12px;text-transform:uppercase;letter-spacing:.12em}
-nav.tabs{display:flex;gap:2px;overflow-x:auto}
-nav.tabs a{color:#c3c2b7;text-decoration:none;padding:8px 12px;border-radius:6px;font-weight:500;white-space:nowrap}
-nav.tabs a:hover{color:#fff;background:#262624}
-nav.tabs a.on{color:#fff;background:#33332f}
-.fac{margin-left:auto;display:flex;gap:4px;font-size:12px}
-.fac button{border:1px solid #44443f;background:transparent;color:#c3c2b7;padding:5px 10px;border-radius:6px;font:inherit;cursor:pointer}
-.fac button.on{background:#f0efec;color:#0b0b0b;border-color:#f0efec}
-.fac button:disabled{opacity:.45;cursor:not-allowed}
-main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
-.banner{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:13px}
-.banner.info{background:var(--accent-soft);color:var(--accent-ink)}
-.banner.warn{background:var(--warn-soft);color:#7a5200}
-.banner.err{background:var(--crit-soft);color:#8e2222}
-h1{font-size:22px;margin:0;font-weight:600;letter-spacing:-.01em}
-h2{font-size:15px;margin:0 0 12px;font-weight:600}
-.sub{color:var(--ink-2);font-size:13px}
-.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+:root{--bg:#f4f5f7;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--acc:#1d4ed8;--accbg:#eff6ff;--warn:#b45309;--warnbg:#fffbeb;--bad:#b91c1c;--badbg:#fef2f2;--ok:#047857;--okbg:#ecfdf5;--ser:#c2410c;--serbg:#fff7ed;
+  --accent:#1d4ed8;--critical:#b91c1c;--ink-2:#64748b;--ink-3:#94a3b8;--line-2:#e2e8f0;--surface:#fff;--surface-2:#f1f5f9;--good-ink:#047857}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+.num{font-variant-numeric:tabular-nums}
+.top{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#0f172a;color:#fff;position:sticky;top:0;z-index:6;height:52px}
+.brand{display:flex;flex-direction:column;line-height:1.15}
+.brand b{font-size:15px}
+.brand small{opacity:.65;font-size:11px}
+.top .sp{flex:1}
+.chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.12);white-space:nowrap;color:#fff}
+.chip.warn{background:#f59e0b;color:#111}
+.chip.ok{background:rgba(16,185,129,.25)}
+#nav{display:flex;gap:4px;padding:6px 12px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto;position:sticky;top:52px;z-index:5}
+#nav a{padding:8px 12px;border-radius:8px;color:var(--mut);text-decoration:none;font-weight:600;white-space:nowrap}
+#nav a.on{background:var(--accbg);color:var(--acc)}
+main{max-width:1280px;margin:0 auto;padding:16px 16px 60px}
+h1{font-size:20px;margin:4px 0 0}
+h2{font-size:16px;margin:0 0 10px}
+.sub,.muted{color:var(--mut)} .sub{font-size:12px}
+.banner{background:var(--accbg);border:1px solid #bfdbfe;color:#1e3a8a;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+.banner.warn{background:var(--warnbg);border-color:#fcd34d;color:#78350f}
+.banner.err{background:var(--badbg);border-color:#fca5a5;color:#7f1d1d}
+.banner a{color:inherit;font-weight:600}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 .grid{display:grid;gap:14px}
-.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px}
-.kpi .l{font-size:12px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.06em;font-weight:500}
-.kpi .v{font-family:var(--mono);font-size:26px;font-weight:500;margin-top:4px;letter-spacing:-.02em}
-.kpi .v small{font-size:13px;color:var(--ink-3);font-weight:400;margin-left:4px}
-.kpi .d{font-size:12px;color:var(--ink-2);margin-top:2px}
-.delta-up{color:var(--critical)} .delta-down{color:var(--good-ink)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+.kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.kpi .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi .v small{font-size:12px;color:var(--mut);font-weight:500;margin-left:4px}
+.kpi .d{font-size:12px;color:var(--mut)}
+.delta-up{color:var(--bad);font-weight:600} .delta-down{color:var(--ok);font-weight:600}
 .two{grid-template-columns:1.25fr 1fr} @media(max-width:900px){.two{grid-template-columns:1fr}}
-select,input[type=date],input[type=number],input[type=text],textarea{font:inherit;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 10px;color:var(--ink)}
-input[type=number]{width:72px;font-family:var(--mono);text-align:right}
-button.btn{font:inherit;font-weight:600;border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:7px;cursor:pointer;color:var(--ink)}
-button.btn:hover{border-color:var(--ink-3)}
-button.btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
-button.btn.pri:hover{background:#2b2b28}
-button.btn.danger{color:var(--critical)}
-button.btn:disabled{opacity:.5;cursor:not-allowed}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#fff}
-.seg button{font:inherit;border:0;background:transparent;padding:6px 12px;cursor:pointer;color:var(--ink-2)}
-.seg button.on{background:var(--ink);color:#fff}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{font-weight:500;color:var(--ink-2);text-align:left;font-size:12px;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--surface)}
-th.n,td.n{text-align:right}
-td{padding:7px 8px;border-bottom:1px solid var(--line-2);white-space:nowrap}
-tr.click{cursor:pointer} tr.click:hover td{background:var(--surface-2)}
-tr.sel td{background:var(--accent-soft)!important}
-tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0}
-.tbl-wrap{overflow:auto;max-height:640px}
+input,select,textarea{font:inherit;padding:9px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;min-width:0;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid #93c5fd;border-color:var(--acc)}
+input[type=number]{width:72px;text-align:right;padding:7px 8px;font-variant-numeric:tabular-nums}
+.btn{font:inherit;font-weight:600;border:1px solid #cbd5e1;background:#fff;color:var(--ink);padding:9px 14px;border-radius:8px;cursor:pointer}
+.btn:hover{background:#f8fafc}
+.btn.pri,.btn.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover,.btn.primary:hover{background:#1e40af}
+.btn.danger{color:var(--bad);border-color:#fca5a5}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.seg{display:inline-flex;gap:4px}
+.seg button{font:inherit;font-weight:600;border:0;background:transparent;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--mut)}
+.seg button.on{background:var(--accbg);color:var(--acc)}
+.tbl-wrap{overflow:auto;max-height:72vh;border:1px solid var(--line);border-radius:10px;background:#fff}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-size:11px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:#f8fafc;z-index:1}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 th.sortable{cursor:pointer} th.sortable:hover{color:var(--ink)}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
-.pill.critical{background:var(--crit-soft);color:#a12a2a}
-.pill.serious{background:var(--ser-soft);color:#9a4318}
-.pill.warning{background:var(--warn-soft);color:#7a5200}
-.pill.good{background:#e5f5e5;color:var(--good-ink)}
-.pill.muted{background:var(--surface-2);color:var(--ink-2)}
-.ico{font-size:10px}
+tr.click{cursor:pointer} tr.click:hover td{background:#f8fafc}
+tr.sel td{background:var(--accbg)!important}
+tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
+.pill.critical{background:var(--badbg);color:var(--bad)}
+.pill.serious{background:var(--serbg);color:var(--ser)}
+.pill.warning{background:var(--warnbg);color:var(--warn)}
+.pill.good{background:var(--okbg);color:var(--ok)}
+.pill.muted{background:#f1f5f9;color:#334155}
+.ico{font-size:9px}
+.tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;background:#f1f5f9;color:#334155;vertical-align:2px}
 .alerts{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow:auto}
-.alert{display:grid;grid-template-columns:auto 44px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:8px;background:var(--surface-2);font-size:13px}
-.alert .m{font-family:var(--mono);font-weight:500}
+.alert{display:grid;grid-template-columns:auto 40px 1fr;gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px}
+.alert .m{font-weight:700;font-variant-numeric:tabular-nums}
 .alert .k{font-weight:600}
-.drop{border:2px dashed var(--line);border-radius:12px;padding:36px;text-align:center;background:var(--surface);cursor:pointer;transition:.15s}
-.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
-.drop b{font-size:16px}
-.muted{color:var(--ink-3)}
-.prodgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
-.prodgrid label{display:flex;align-items:center;justify-content:space-between;gap:6px;background:var(--surface-2);border-radius:7px;padding:6px 8px;font-family:var(--mono);font-size:13px}
-.prodgrid label span.ck{color:var(--ink-3);font-size:11px}
+.drop{display:block;border:2px dashed #cbd5e1;border-radius:12px;padding:36px;text-align:center;background:#fff;cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--acc);background:var(--accbg)}
+.drop b{font-size:15px}
+.prodgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.prodgrid label{display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid var(--line);border-radius:8px;padding:5px 6px 5px 10px;font-size:12px;font-weight:600;color:#334155}
+.prodgrid label span.ck{color:var(--mut);font-size:11px;font-weight:500}
 .chart{width:100%;display:block}
-.chart text{font-family:var(--sans);font-size:11px;fill:var(--ink-2)}
-.chart .ax{stroke:var(--line)} .chart .gl{stroke:var(--line-2)}
-.tip{position:fixed;pointer-events:none;z-index:50;background:var(--ink);color:#f0efec;font-size:12px;padding:7px 10px;border-radius:7px;line-height:1.4;max-width:280px;display:none;box-shadow:0 4px 18px rgba(0,0,0,.18)}
-.tip b{color:#fff}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-top:6px}
+.chart text{font-family:Inter,system-ui,sans-serif;font-size:11px;fill:var(--mut)}
+.chart .ax{stroke:#cbd5e1} .chart .gl{stroke:#eef2f6}
+.tip{position:fixed;pointer-events:none;z-index:50;background:#0f172a;color:#fff;font-size:12px;padding:7px 10px;border-radius:8px;line-height:1.4;max-width:280px;display:none;box-shadow:0 4px 18px rgba(15,23,42,.2)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-.heat{width:auto} .heat td{padding:0;border:0} .heat td.c{width:30px;height:24px;text-align:center;font-family:var(--mono);font-size:10.5px;border:1px solid var(--surface);cursor:default}
-.heat th{font-size:11px;padding:4px;border:0;position:static}
-.empty{padding:60px 20px;text-align:center;color:var(--ink-2)}
-.empty b{display:block;font-size:17px;color:var(--ink);margin-bottom:6px}
-.tag{font-size:11px;font-family:var(--mono);background:var(--surface-2);border-radius:4px;padding:1px 6px;color:var(--ink-2)}
+.heat{width:auto} .heat td{padding:0;border:0} .heat td.c{width:32px;height:24px;text-align:center;font-size:10.5px;font-variant-numeric:tabular-nums;border:1px solid #fff}
+.heat th{font-size:10px;padding:4px;border:0;position:static;background:transparent}
+.empty{padding:40px 20px;text-align:center;color:var(--mut)}
+.empty b{display:block;font-size:16px;color:var(--ink);margin-bottom:6px}
 .spark{display:inline-block;vertical-align:middle}
 .hidden{display:none!important}
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;z-index:60;font-size:13px;display:none}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:70;display:flex;align-items:center;justify-content:center}
-.modal{background:var(--surface);border-radius:12px;padding:20px;max-width:420px;width:92%}
-.bar-row{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:5px 0}
-.bar-row .lab{width:110px;color:var(--ink-2)}
-.bar-row .trk{flex:1;height:14px;background:var(--surface-2);border-radius:3px;overflow:hidden}
-.bar-row .trk i{display:block;height:100%;background:var(--accent);border-radius:0 4px 4px 0}
-.bar-row .val{width:90px;text-align:right;font-family:var(--mono)}
-.login{position:fixed;inset:0;background:var(--bg);z-index:80;display:flex;align-items:center;justify-content:center}
-.login form{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;width:min(380px,92vw);display:flex;flex-direction:column;gap:12px}
-.login label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2)}
-.who{color:#a9a79f;font-size:12px;white-space:nowrap}
-.who button{margin-left:8px;border:1px solid #44443f;background:transparent;color:#c3c2b7;padding:4px 9px;border-radius:6px;font:inherit;cursor:pointer}
-details summary{cursor:pointer;color:var(--ink-2);font-size:13px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:10px 16px;border-radius:10px;z-index:60;font-size:13px;display:none;max-width:90vw}
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:70;display:flex;align-items:center;justify-content:center;padding:12px}
+.modal{background:#fff;border-radius:14px;padding:18px;max-width:420px;width:100%}
+.login{position:fixed;inset:0;background:var(--bg);z-index:80;display:flex;align-items:center;justify-content:center;padding:12px}
+.login .sheet{background:#fff;border-radius:14px;max-width:380px;width:100%;padding:18px}
+.login form{display:flex;flex-direction:column;gap:12px}
+.login label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155}
+.bar-row{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0}
+.bar-row .lab{width:120px;color:var(--mut)}
+.bar-row .trk{flex:1;height:12px;background:#f1f5f9;border-radius:3px;overflow:hidden}
+.bar-row .trk i{display:block;height:100%;background:var(--acc);border-radius:0 4px 4px 0}
+.bar-row .val{width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+details summary{cursor:pointer;color:var(--acc);font-size:13px;font-weight:600}
+@media(max-width:720px){main{padding:10px 10px 60px}.kpi .v{font-size:17px}input,select,textarea{font-size:16px}.brand small{display:none}th,td{padding:7px 8px}}
 </style>
 </head>
 <body>
-<header class="top"><div class="top-in">
-  <div class="brand"><b>GOPI KNITTS</b><span>Quality Tracker</span></div>
-  <nav class="tabs" id="tabs">
-    <a href="#daily" data-v="daily">Daily report</a>
-    <a href="#trends" data-v="trends">Trends</a>
-    <a href="#upload" data-v="upload">Upload</a>
-    <a href="#history" data-v="history">History</a>
-  </nav>
-  <div class="fac"><button class="on">Factory 1</button><button disabled title="Not set up yet">Factory 2</button></div>
-  <div class="who" id="who"></div>
-</div></header>
+<header class="top">
+  <div class="brand"><b>Quality Tracker</b><small>Roll checking · faults · taarcut</small></div>
+  <div class="sp"></div>
+  <span class="chip">Factory 1</span>
+  <span class="chip" id="role" style="display:none"></span>
+  <span class="chip" id="status">Connecting…</span>
+  <button class="chip" id="signout" style="border:0;cursor:pointer;display:none">Sign out</button>
+</header>
+<nav id="nav">
+  <a href="#daily" data-v="daily">Daily report</a>
+  <a href="#trends" data-v="trends">Trends</a>
+  <a href="#upload" data-v="upload">Upload</a>
+  <a href="#history" data-v="history">History</a>
+</nav>
 <main id="main">
   <div id="conn" class="banner info">Connecting…</div>
   <section id="v-daily"></section>
@@ -140,13 +135,14 @@ details summary{cursor:pointer;color:var(--ink-2);font-size:13px}
   <section id="v-upload" class="hidden"></section>
   <section id="v-history" class="hidden"></section>
 </main>
-<div class="login hidden" id="login"><form id="lf">
-  <div><h1>Quality Tracker</h1><div class="sub">Gopi Knitts · sign in with your yarn tracker login</div></div>
-  <label>Email<input name="email" type="email" autocomplete="username" required></label>
-  <label>Password<input name="pw" type="password" autocomplete="current-password" required></label>
-  <div id="lerr" style="color:var(--critical);font-size:13px"></div>
-  <button class="btn pri" type="submit">Sign in</button>
-</form></div>
+<div class="login hidden" id="login"><div class="sheet">
+  <h1>Quality Tracker</h1><p class="sub" style="margin:4px 0 14px">Sign in with the same login you use for the yarn tracker.</p>
+  <form id="lf">
+    <label>Email<input name="email" type="email" autocomplete="username" required></label>
+    <label>Password<input name="pw" type="password" autocomplete="current-password" required></label>
+    <div id="lerr" style="color:var(--bad);font-size:12px"></div>
+    <button class="btn primary" type="submit">Sign in</button>
+  </form></div></div>
 <div class="tip" id="tip"></div>
 <div class="toast" id="toast"></div>
 
@@ -404,17 +400,17 @@ const sbErr = e => { const m = (e && e.message) || 'Database error'; const err =
 async function initStore() {
   if (!SB) {
     demoMode = true; S.loaded = true;
-    setConn('warn', 'Not connected to Supabase (config.js missing) — running in local test mode; nothing is saved for others.');
+    setStatus('Local test mode', 'warn'); setConn('warn', 'Not connected to Supabase (config.js missing) — running in local test mode; nothing is saved for others.');
     try { const raw = localStorage.getItem('gk-qt-demo'); if (raw) { const o = JSON.parse(raw); for (const k in o) ingestDoc(k, o[k]); } } catch (e) {}
     afterLoad(); return;
   }
   const { data } = await SB.auth.getSession(); SESSION = data.session;
   SB.auth.onAuthStateChange((ev, s) => { if (ev === 'SIGNED_OUT') location.reload(); SESSION = s || SESSION; });
-  if (!SESSION) return showLogin();
+  if (!SESSION) { setStatus('Signed out'); return showLogin(); }
   const { data: prof } = await SB.from('profiles').select('id,name,role,email').eq('id', SESSION.user.id).maybeSingle();
   PROFILE = prof;
-  $('#who').innerHTML = `${esc((PROFILE && (PROFILE.name || PROFILE.email)) || SESSION.user.email)}<button id="so">Sign out</button>`;
-  $('#so').onclick = () => SB.auth.signOut();
+  $('#signout').style.display = ''; $('#signout').onclick = () => SB.auth.signOut();
+  if (PROFILE) { const rl = { admin: 'Admin', entry: 'Data entry', viewer: 'View only', blocked: 'No access' }[PROFILE.role] || PROFILE.role; $('#role').textContent = (PROFILE.name ? PROFILE.name + ' · ' : '') + rl; $('#role').style.display = ''; }
   if (!PROFILE || PROFILE.role === 'blocked') { S.loaded = true; setConn('warn', `Your login (${SESSION.user.email}) has no access yet. Ask the admin to set your role in the yarn tracker (Masters → Users).`); ['daily', 'trends', 'upload', 'history'].forEach(v => $('#v-' + v).innerHTML = ''); return; }
   S.canWrite = ['admin', 'entry'].includes(PROFILE.role); isAdmin = PROFILE.role === 'admin';
   await loadAll();
@@ -443,7 +439,8 @@ function showLogin() {
     $('#login').classList.add('hidden'); initStore();
   };
 }
-function setConn(kind, msg) { const c = $('#conn'); if (!kind) { c.classList.add('hidden'); return; } c.classList.remove('hidden'); c.className = 'banner ' + kind; c.textContent = msg; }
+function setStatus(t, cls) { const e = $('#status'); e.textContent = t; e.className = 'chip ' + (cls || ''); }
+function setConn(kind, msg) { const c = $('#conn'); if (!kind) { c.classList.add('hidden'); setStatus(demoMode ? 'Local test mode' : 'Live', demoMode ? 'warn' : 'ok'); return; } c.classList.remove('hidden'); c.className = 'banner ' + kind; c.textContent = msg; setStatus(kind === 'err' ? 'Error' : demoMode ? 'Local test mode' : 'Check', 'warn'); }
 function demoSave(mut) { try { const raw = JSON.parse(localStorage.getItem('gk-qt-demo') || '{}'); mut(raw); localStorage.setItem('gk-qt-demo', JSON.stringify(raw)); } catch (e) {} }
 async function saveDay(date, rolls, production, source) {
   const body = { date, factory: FACTORY, rolls: rolls.map(packRoll), production, source, savedAt: new Date().toISOString() };
@@ -511,7 +508,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 function route() {
   const h = (location.hash || '#daily').slice(1);
   S.view = ['daily', 'trends', 'upload', 'history'].includes(h) ? h : 'daily';
-  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.v === S.view));
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.v === S.view));
   ['daily', 'trends', 'upload', 'history'].forEach(v => $('#v-' + v).classList.toggle('hidden', v !== S.view));
   render();
 }
@@ -531,7 +528,7 @@ function renderDaily() {
   const el = $('#v-daily');
   const ds = sortedDates();
   if (!S.loaded) { el.innerHTML = `<div class="empty">Loading…</div>`; return; }
-  if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No checking reports yet</b>Upload the daily roll checking report (PDF) to start.<br><br><button class="btn pri" onclick="location.hash='upload'">Upload first report</button></div>`; return; }
+  if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No checking reports yet</b>Upload the daily roll checking report (PDF) to start.<br><br><button class="btn primary" onclick="location.hash='upload'">Upload first report</button></div>`; return; }
   const B = dayBundle(S.selDate);
   const { d, ms, tot, prevTot, prevN, alerts } = B;
   const prod = d.production || {}; const hasProd = Object.keys(prod).length > 0;
@@ -656,7 +653,7 @@ function lineChart(host, pts, opts = {}) {
 }
 
 // ===================== TRENDS =====================
-const SEQ = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
+const SEQ = ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6', '#1d4ed8', '#1e3a8a'];
 function renderTrends() {
   const el = $('#v-trends'); const all = sortedDates();
   if (!all.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Trends appear once reports are uploaded.</div>`; return; }
@@ -689,7 +686,7 @@ function renderTrends() {
   lineChart($('#tCut'), perDay.map(p => ({ label: shortDate(p.x), v: p.t.mtr ? p.t.cutM / p.t.mtr * 1000 : 0, tip: `<b>${fmtDate(p.x)}</b><br>${fmt(p.t.cutM)} m cut in ${p.t.cuts} cuts<br>${fmt(p.t.mtr ? p.t.cutM / p.t.mtr * 1000 : 0, 1)} m per 1,000 m` })));
   const bucket = v => v < 1 ? 0 : v < 2 ? 1 : v < 3 ? 2 : v < 4 ? 3 : v < 6 ? 4 : v < 9 ? 5 : 6;
   $('#heat').innerHTML = `<table class="heat"><thead><tr><th></th>${perDay.map(p => `<th>${shortDate(p.x)}</th>`).join('')}<th style="padding-left:10px">Period</th></tr></thead><tbody>
-  ${F1_MACHINES.map(m => `<tr><th style="text-align:right;font-family:var(--mono)">M${m}</th>${perDay.map(p => { const s = p.ms[m]; if (!s || !s.mtr) return `<td class="c" style="background:var(--surface-2)"></td>`; const b = bucket(s.f100); return `<td class="c" style="background:${SEQ[b]};color:${b >= 3 ? '#fff' : 'var(--ink)'}" data-tip="<b>M${m} · ${fmtDate(p.x)}</b><br>${fmt(s.f100, 2)} faults / 100 m<br>${s.takas} takas · ${fmt(s.mtr)} m · cut ${s.cutM} m">${fmt(s.f100, 1)}</td>`; }).join('')}<td style="padding-left:10px;font-family:var(--mono);font-size:12px">${MS[m] ? fmt(MS[m].f100, 2) : '–'}</td></tr>`).join('')}
+  ${F1_MACHINES.map(m => `<tr><th style="text-align:right">M${m}</th>${perDay.map(p => { const s = p.ms[m]; if (!s || !s.mtr) return `<td class="c" style="background:var(--surface-2)"></td>`; const b = bucket(s.f100); return `<td class="c" style="background:${SEQ[b]};color:${b >= 3 ? '#fff' : 'var(--ink)'}" data-tip="<b>M${m} · ${fmtDate(p.x)}</b><br>${fmt(s.f100, 2)} faults / 100 m<br>${s.takas} takas · ${fmt(s.mtr)} m · cut ${s.cutM} m">${fmt(s.f100, 1)}</td>`; }).join('')}<td style="padding-left:10px;font-size:12px">${MS[m] ? fmt(MS[m].f100, 2) : '–'}</td></tr>`).join('')}
   </tbody></table>`;
   const rk = Object.values(MS).sort((a, b) => b.f100 - a.f100);
   $('#rank').innerHTML = `<table><thead><tr><th>#</th><th>Mac</th><th class="n">Takas</th><th class="n">Metres</th><th class="n">F / 100 m</th><th class="n">Change</th><th class="n">Cut m / 1,000 m</th><th class="n">Taarcut takas %</th><th class="n">Loding %</th><th class="n">Worst taka</th><th>Daily trend</th></tr></thead><tbody>
@@ -757,7 +754,7 @@ function renderUpload() {
   let body = '';
   if (!P) {
     const pre = S.prefillDate && S.days[S.prefillDate] ? S.prefillDate : null;
-    body = `<label class="drop" id="drop"><input type="file" accept=".pdf,.xlsx,.xls,.csv" hidden id="file"><b>Drop the daily roll checking report here</b><div class="sub" style="margin-top:6px">PDF printed from “GK ROLL CHECKING REP”, or the Excel file itself · Factory 1</div><div style="margin-top:14px"><span class="btn pri" style="display:inline-block">Choose file</span></div></label>
+    body = `<label class="drop" id="drop"><input type="file" accept=".pdf,.xlsx,.xls,.csv" hidden id="file"><b>Drop the daily roll checking report here</b><div class="sub" style="margin-top:6px">PDF printed from “GK ROLL CHECKING REP”, or the Excel file itself · Factory 1</div><div style="margin-top:14px"><span class="btn primary" style="display:inline-block">Choose file</span></div></label>
     ${sortedDates().length ? `<div class="card" style="margin-top:14px"><h2>Enter or correct production for a saved day</h2><div class="row"><select id="prodDay">${sortedDates().slice().reverse().map(x => `<option value="${x}" ${x === pre ? 'selected' : ''}>${fmtDate(x)}${Object.keys(S.days[x].production || {}).length ? '' : ' — production missing'}</option>`).join('')}</select><button class="btn" onclick="editProd($('#prodDay').value)">Open</button></div></div>` : ''}`;
   } else if (P.status === 'reading') body = `<div class="card empty"><b>Reading ${esc(P.name)}…</b>Extracting taka rows</div>`;
   else if (P.status === 'error') body = `<div class="banner err">${esc(P.msg)}</div><button class="btn" onclick="S.pending=null;renderUpload()">Try another file</button>`;
@@ -783,12 +780,12 @@ function renderUpload() {
       <div class="prodgrid">${F1_MACHINES.map(m => `<label>M${m} <span class="ck">chk ${ms[m] ? ms[m].takas : 0}</span><input type="number" min="0" step="1" data-m="${m}" value="${P.prodFor[d][m] ?? ''}" oninput="setProd(${m},this.value)"></label>`).join('')}</div>
       <details style="margin-top:12px"><summary>Paste production column from Excel</summary>
         <div class="sub" style="margin:8px 0">Paste either the PRODUCTION column (one number per line, machines in order ${F1_MACHINES.slice(0, 4).join(', ')}…${F1_MACHINES[F1_MACHINES.length - 1]}; blank lines allowed) or two columns: MACHINE and PRODUCTION.</div>
-        <textarea id="paste" rows="5" style="width:100%;font-family:var(--mono)"></textarea><div style="margin-top:6px"><button class="btn" onclick="applyPaste()">Fill from paste</button></div></details>
+        <textarea id="paste" rows="5" style="width:100%"></textarea><div style="margin-top:6px"><button class="btn" onclick="applyPaste()">Fill from paste</button></div></details>
     </div>
     ${P.status === 'preview' ? `<div class="card" style="margin-bottom:14px"><h2>Parsed takas by machine</h2><div class="tbl-wrap" style="max-height:340px"><table><thead><tr><th>Mac</th><th class="n">Takas</th><th class="n">Metres</th><th class="n">Faults</th><th class="n">F / 100 m</th><th class="n">Taarcut m</th><th class="n">Loding</th><th>Taka nos.</th></tr></thead><tbody>
       ${Object.values(ms).sort((a, b) => a.mac - b.mac).map(s => `<tr><td class="num">M${s.mac}</td><td class="n">${s.takas}</td><td class="n">${fmt(s.mtr)}</td><td class="n">${s.faults}</td><td class="n">${fmt(s.f100, 2)}</td><td class="n">${s.cutM}</td><td class="n">${s.loding}</td><td class="muted" style="white-space:normal;font-size:12px">${rows.filter(r => r.mac === s.mac).map(r => esc(r.taka)).join(', ')}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}
-    <div class="row"><button class="btn pri" id="saveBtn" onclick="commitPending()">${P.status === 'prod' ? 'Save production' : P.dates.length > 1 ? `Save ${P.dates.length} days` : 'Save report'}</button><button class="btn" onclick="S.pending=null;renderUpload()">Cancel</button></div>`;
+    <div class="row"><button class="btn primary" id="saveBtn" onclick="commitPending()">${P.status === 'prod' ? 'Save production' : P.dates.length > 1 ? `Save ${P.dates.length} days` : 'Save report'}</button><button class="btn" onclick="S.pending=null;renderUpload()">Cancel</button></div>`;
   }
   el.innerHTML = `${!P ? `<div class="pagehead"><div><div class="sub">Factory 1</div><h1>Upload checking report</h1></div></div>` : ''}${body}`;
   const f = $('#file'), dr = $('#drop');
@@ -832,7 +829,7 @@ function renderHistory() {
 }
 function askDelete(x) {
   const bg = document.createElement('div'); bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal"><h2>Delete ${fmtDate(x)}?</h2><p class="sub">This removes the checking data and production for that day for everyone.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">Cancel</button><button class="btn pri" id="mYes" style="background:var(--critical);border-color:var(--critical)">Delete</button></div></div>`;
+  bg.innerHTML = `<div class="modal"><h2>Delete ${fmtDate(x)}?</h2><p class="sub">This removes the checking data and production for that day for everyone.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">Cancel</button><button class="btn primary" id="mYes" style="background:var(--critical);border-color:var(--critical)">Delete</button></div></div>`;
   document.body.appendChild(bg);
   bg.querySelector('#mNo').onclick = () => bg.remove();
   bg.querySelector('#mYes').onclick = async () => { try { await deleteDay(x); toast('Deleted'); } catch (e) { toast(e.message || 'Delete failed'); } bg.remove(); };
