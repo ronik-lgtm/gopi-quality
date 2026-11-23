@@ -109,6 +109,41 @@ tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
 .bar-row .trk{flex:1;height:12px;background:#f1f5f9;border-radius:3px;overflow:hidden}
 .bar-row .trk i{display:block;height:100%;background:var(--acc);border-radius:0 4px 4px 0}
 .bar-row .val{width:80px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+/* simple views */
+.headline{font-size:15px;margin:0 0 12px;color:#334155}
+.headline b{color:var(--ink)}
+.big3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.big3 .t{border-radius:12px;padding:14px 16px;border:1px solid}
+.big3 .t .n{font-size:30px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.big3 .t .n small{font-size:15px;font-weight:600;opacity:.8;margin-left:6px}
+.big3 .t .w{font-size:13px;font-weight:600;margin-top:2px}
+.t.g{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}.t.o{background:#fffbeb;border-color:#fcd34d;color:#92400e}.t.r{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.mcard{border-radius:12px;padding:12px 13px;border:1px solid var(--line);border-left:6px solid #cbd5e1;background:#fff;cursor:pointer;text-align:left;font:inherit;color:var(--ink);display:flex;flex-direction:column;gap:6px;transition:transform .1s, box-shadow .1s}
+.mcard:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(15,23,42,.1)}
+.mcard.green{background:#f0fdf4;border-color:#bbf7d0;border-left-color:#16a34a}
+.mcard.orange{background:#fffbeb;border-color:#fde68a;border-left-color:#f59e0b}
+.mcard.red{background:#fef2f2;border-color:#fecaca;border-left-color:#dc2626}
+.mcard.none{background:#f8fafc;color:var(--mut);cursor:default}
+.mcard .mt{display:flex;justify-content:space-between;align-items:center}
+.mcard .mt b{font-size:17px}
+.mcard .st{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.mcard.green .st{color:#15803d}.mcard.orange .st{color:#b45309}.mcard.red .st{color:#b91c1c}
+.mcard .pc{font-size:24px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.mcard .pc small{font-size:12px;font-weight:600;color:var(--mut);margin-left:3px}
+.zbar{display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;background:#e2e8f0}
+.zbar i{display:block;height:100%}
+.mcard .ms{font-size:12px;color:var(--mut)}
+.days{display:flex;gap:4px}
+.days span{flex:1;height:20px;border-radius:4px;font-size:10px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center}
+.attn{display:flex;flex-direction:column;gap:6px}
+.attn div{display:flex;gap:10px;align-items:baseline;padding:9px 12px;border-radius:10px;background:#fff;border:1px solid var(--line);font-size:14px}
+.attn div b{min-width:44px}
+.daybar{display:grid;grid-template-columns:120px 1fr 90px;gap:10px;align-items:center;margin:8px 0;font-size:13px}
+.daybar .zbar{height:18px;border-radius:5px}
+.daybar .p{text-align:right;font-weight:700}
+.modal.wide{max-width:600px;max-height:90vh;overflow:auto}
+.toggle{margin:18px 0 10px}
 details summary{cursor:pointer;color:var(--acc);font-size:13px;font-weight:600}
 @media(max-width:720px){main{padding:10px 10px 60px}.kpi .v{font-size:17px}input,select,textarea{font-size:16px}.brand small{display:none}th,td{padding:7px 8px}}
 </style>
@@ -424,7 +459,7 @@ if (typeof module !== 'undefined') Object.assign(module.exports, { parseProducti
 <script>
 // ===================== state =====================
 const COLL = 'f1days';
-const S = { days: {}, dbRef: null, canWrite: true, loaded: false, view: 'daily', selDate: null, selMac: null, trendRange: 14, sort: { k: 'mac', d: 1 }, pending: null };
+const S = { days: {}, dbRef: null, canWrite: true, loaded: false, view: 'daily', selDate: null, selMac: null, trendRange: 3, showDetail: false, showTDetail: false, sort: { k: 'mac', d: 1 }, pending: null };
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n, d = 0) => n == null || isNaN(n) ? '–' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -591,30 +626,126 @@ function render() {
   else renderHistory();
 }
 
-// ===================== DAILY =====================
-function sevPill(sev) { const ic = { critical: '▲', serious: '◆', warning: '●' }[sev]; const lab = { critical: 'Critical', serious: 'Serious', warning: 'Watch' }[sev]; return `<span class="pill ${sev}"><span class="ico">${ic}</span>${lab}</span>`; }
-
+// ===================== SIMPLE VIEWS =====================
+// Machine colour: GOOD = no second-quality takas and at least 80% takas green;
+// PROBLEM = 10% or more takas second quality; WATCH = everything in between.
+const MSTAT = { greenMinPct: 80, redMinPct: 10 };
+function machineStatus(s) {
+  if (!s || !s.takas) return null;
+  const g = s.green / s.takas * 100, r = s.red / s.takas * 100;
+  if (s.red === 0 && g >= MSTAT.greenMinPct) return 'green';
+  if (r >= MSTAT.redMinPct) return 'red';
+  return 'orange';
+}
+const STAT_WORD = { green: 'Good', orange: 'Watch', red: 'Problem' };
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const zbar = s => { const n = (s.green + s.orange + s.red) || 1; return `<div class="zbar">${['green', 'orange', 'red'].map(k => s[k] ? `<i style="flex:${s[k] / n};background:${ZONE[k]}"></i>` : '').join('')}</div>`; };
+const simpleLegend = `<div class="legend" style="margin:0 0 10px">${'<span><i style="background:' + ZONE.green + '"></i>Good taka · up to ' + GRADE.greenMax + ' faults per 100 m</span><span><i style="background:' + ZONE.orange + '"></i>Watch · ' + GRADE.greenMax + '–' + GRADE.redMin + '</span><span><i style="background:' + ZONE.red + '"></i>Second quality · ' + GRADE.redMin + '+</span>'}</div>`;
+function mcard(m, s, extra = '', onclick = '') {
+  const st = machineStatus(s);
+  if (!st) return `<div class="mcard none"><div class="mt"><b>M${m}</b><span class="st">—</span></div><div class="ms">Not checked</div>${extra}</div>`;
+  return `<button class="mcard ${st}" onclick="${onclick}"><div class="mt"><b>M${m}</b><span class="st">${STAT_WORD[st]}</span></div>
+    <div class="pc">${pct(s.green, s.takas)}%<small>good</small></div>${zbar(s)}
+    <div class="ms">${s.takas} takas${s.red ? ` · <b style="color:var(--bad)">${s.red} second</b>` : ''}</div>${extra}</button>`;
+}
+function big3(t) {
+  return `<div class="big3">
+    <div class="t g"><div class="n">${t.green}<small>${pct(t.green, t.takas)}%</small></div><div class="w">Good takas</div></div>
+    <div class="t o"><div class="n">${t.orange}<small>${pct(t.orange, t.takas)}%</small></div><div class="w">Watch</div></div>
+    <div class="t r"><div class="n">${t.red}<small>${pct(t.red, t.takas)}%</small></div><div class="w">Second quality</div></div></div>`;
+}
 function renderDaily() {
-  const el = $('#v-daily');
-  const ds = sortedDates();
+  const el = $('#v-daily'); const ds = sortedDates();
   if (!S.loaded) { el.innerHTML = `<div class="empty">Loading…</div>`; return; }
   if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No checking reports yet</b>Upload the daily roll checking report (PDF) to start.<br><br><button class="btn primary" onclick="location.hash='upload'">Upload first report</button></div>`; return; }
   if (!S.days[S.selDate].rolls.length) { renderProdOnlyDay(el, ds); return; }
+  const d = S.days[S.selDate], ms = machineStats(d.rolls), t = dayTotals(d.rolls);
+  const prod = d.production || {}, hasProd = Object.keys(prod).length > 0;
+  const prodTot = F1_MACHINES.reduce((a, m) => a + (+prod[m] || 0), 0);
+  const skipped = F1_MACHINES.filter(m => (+prod[m] || 0) > 0 && !ms[m]);
+  // plain-language attention list
+  const att = [];
+  Object.values(ms).filter(s => s.red).sort((a, b) => b.red - a.red).forEach(s => att.push(`<div><b style="color:var(--bad)">M${s.mac}</b><span>${s.red} second-quality taka${s.red > 1 ? 's' : ''} — #${s.redTakas.join(', #')}</span></div>`));
+  Object.values(ms).filter(s => !s.red && machineStatus(s) === 'orange').forEach(s => att.push(`<div><b style="color:var(--warn)">M${s.mac}</b><span>only ${pct(s.green, s.takas)}% good takas — keep an eye on it</span></div>`));
+  if (skipped.length) att.push(`<div><b class="muted">M${skipped.join(', M')}</b><span>produced but nothing checked yet</span></div>`);
+  el.innerHTML = `
+  <div class="pagehead"><div><div class="sub">Factory 1 · Daily report</div><h1>${fmtDate(S.selDate)}</h1></div>${dateNav(ds)}</div>
+  <p class="headline"><b>${t.takas}</b> takas checked${hasProd ? ` out of <b>${prodTot}</b> produced` : ''} — <b style="color:${ZONE.red}">${t.red} second quality</b>.${hasProd && prodTot - t.takas > 0 ? ` ${prodTot - t.takas} takas still waiting to be checked.` : ''}</p>
+  ${big3(t)}
+  <div class="grid two" style="align-items:start">
+    <div class="card"><h2>Machines today</h2>${simpleLegend}<div class="wall">${F1_MACHINES.map(m => mcard(m, ms[m], '', `openMachine(${m},'day')`)).join('')}</div></div>
+    <div class="card"><h2>Needs attention</h2><div class="attn">${att.length ? att.join('') : '<div><span style="color:var(--ok)">All machines good today.</span></div>'}</div></div>
+  </div>
+  <div class="toggle"><button class="btn" onclick="S.showDetail=!S.showDetail;render()">${S.showDetail ? 'Hide detailed numbers ▴' : 'Show detailed numbers ▾'}</button></div>
+  <div id="dailyDetail"></div>`;
+  if (S.showDetail) renderDailyDetail($('#dailyDetail'));
+}
+function renderTrends() {
+  const el = $('#v-trends'); const all = checkedDates();
+  if (!all.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Trends appear once reports are uploaded.</div>`; return; }
+  const ds = all.slice(-S.trendRange);
+  const per = ds.map(x => ({ x, t: dayTotals(S.days[x].rolls), ms: machineStats(S.days[x].rolls) }));
+  const MS = machineStats(ds.flatMap(x => S.days[x].rolls)), T = dayTotals(ds.flatMap(x => S.days[x].rolls));
+  const bad = F1_MACHINES.filter(m => machineStatus(MS[m]) === 'red'), watch = F1_MACHINES.filter(m => machineStatus(MS[m]) === 'orange');
+  const dayChips = m => `<div class="days">${per.map(p => { const st = machineStatus(p.ms[m]); return `<span style="background:${st ? ZONE[st] : '#e2e8f0'}" data-tip="${fmtDate(p.x)}: ${p.ms[m] ? `${pct(p.ms[m].green, p.ms[m].takas)}% good · ${p.ms[m].red} second` : 'not checked'}">${p.x.slice(8)}</span>`; }).join('')}</div>`;
+  el.innerHTML = `
+  <div class="pagehead"><div><div class="sub">Factory 1 · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div><h1>Machine quality — last ${ds.length} day${ds.length > 1 ? 's' : ''}</h1></div>
+    <div class="seg">${[3, 7, 14, 30].map(v => `<button class="${S.trendRange === v ? 'on' : ''}" onclick="S.trendRange=${v};render()">${v} days</button>`).join('')}</div></div>
+  <p class="headline">${bad.length ? `<b style="color:var(--bad)">${bad.length} machine${bad.length > 1 ? 's' : ''} in problem</b> (M${bad.join(', M')})` : '<b style="color:var(--ok)">No machine in problem</b>'}${watch.length ? ` · <b style="color:var(--warn)">${watch.length} to watch</b> (M${watch.join(', M')})` : ''} · ${pct(T.green, T.takas)}% of all takas good.</p>
+  <div class="card" style="margin-bottom:14px"><h2>Each machine — click for details</h2>${simpleLegend}
+    <div class="sub" style="margin:-4px 0 10px">Machine colour: <b style="color:#15803d">Good</b> = no second-quality taka and ${MSTAT.greenMinPct}%+ good · <b style="color:#b91c1c">Problem</b> = ${MSTAT.redMinPct}%+ second quality · <b style="color:#b45309">Watch</b> = in between. Small boxes = each day.</div>
+    <div class="wall">${F1_MACHINES.map(m => mcard(m, MS[m], MS[m] ? dayChips(m) : '', `openMachine(${m},'trend')`)).join('')}</div></div>
+  <div class="card"><h2>Whole factory, day by day</h2>
+    ${per.map(p => `<div class="daybar"><span>${fmtDate(p.x).replace(/, \d{4}$/, '')}</span>${zbar(p.t)}<span class="p" style="color:${p.t.red ? 'var(--bad)' : 'var(--ok)'}">${pct(p.t.green, p.t.takas)}% good</span></div>`).join('')}
+    <div class="sub">Bar = share of good / watch / second-quality takas that day.</div></div>
+  <div class="toggle"><button class="btn" onclick="S.showTDetail=!S.showTDetail;render()">${S.showTDetail ? 'Hide detailed numbers ▴' : 'Show detailed numbers ▾'}</button></div>
+  <div id="trendDetail"></div>`;
+  if (S.showTDetail) renderTrendsDetail($('#trendDetail'), ds);
+}
+// machine pop-up: last 3 checked days up to the selected / latest day
+function openMachine(m, mode) {
+  const all = checkedDates();
+  const end = mode === 'day' ? S.selDate : all[all.length - 1];
+  const ds = mode === 'trend' ? all.slice(-S.trendRange) : all.filter(x => x <= end).slice(-3);
+  const rows = ds.map(x => ({ x, s: machineStats(S.days[x].rolls)[m] || null, rolls: S.days[x].rolls.filter(r => r.mac === m) }));
+  const allS = machineStats(ds.flatMap(x => S.days[x].rolls.filter(r => r.mac === m)))[m];
+  const st = machineStatus(allS);
+  const firstG = rows.find(r => r.s), lastG = [...rows].reverse().find(r => r.s);
+  let trend = '';
+  if (firstG && lastG && firstG !== lastG) { const a = pct(firstG.s.green, firstG.s.takas), b = pct(lastG.s.green, lastG.s.takas); trend = b - a >= 10 ? '<span style="color:var(--ok);font-weight:700">▲ Improving</span>' : a - b >= 10 ? '<span style="color:var(--bad);font-weight:700">▼ Getting worse</span>' : '<span class="muted" style="font-weight:700">● Steady</span>'; }
+  const seconds = rows.flatMap(r => r.rolls.filter(x => gradeOf(takaF100(x)) === 'red').map(x => ({ ...x, d: r.x })));
+  const dayRows = mode === 'day' ? rows.filter(r => r.x === end) : [];
+  const bg = document.createElement('div'); bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal wide">
+    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" id="mx">Close</button></div>
+    <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div>
+    ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div></div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
+    <h2>Day by day</h2>
+    ${rows.map(r => `<div class="daybar"><span>${fmtDate(r.x).replace(/, \d{4}$/, '')}</span>${r.s ? zbar(r.s) : '<div class="zbar"></div>'}<span class="p" style="color:${r.s ? ZONE[machineStatus(r.s)] : 'var(--mut)'}">${r.s ? pct(r.s.green, r.s.takas) + '% good' : 'not checked'}</span></div>
+      ${r.s ? `<div class="sub" style="margin:-4px 0 8px 130px">${r.s.takas} takas · ${r.s.green} good · ${r.s.orange} watch · ${r.s.red} second</div>` : ''}`).join('')}
+    ${seconds.length ? `<h2 style="margin-top:14px">Second-quality takas</h2><div class="attn">${seconds.map(x => `<div><b style="color:var(--bad)">#${esc(x.taka)}</b><span>${fmtDate(x.d).replace(/, \d{4}$/, '')} · ${x.total} faults in ${x.mtr} m${x.remark ? ' · ' + esc(x.remark) : ''}</span></div>`).join('')}</div>` : ''}
+    ${dayRows.length && dayRows[0].rolls.length ? `<h2 style="margin-top:14px">All takas on ${fmtDate(end).replace(/, \d{4}$/, '')}</h2><div class="tbl-wrap" style="max-height:260px"><table><thead><tr><th>Taka</th><th class="n">Metres</th><th class="n">Faults</th><th>Grade</th><th>Remark</th></tr></thead><tbody>${dayRows[0].rolls.map(x => { const g = gradeOf(takaF100(x)); return `<tr><td>${esc(x.taka)}</td><td class="n">${x.mtr}</td><td class="n">${x.total}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[g] || ''}</td><td class="muted" style="white-space:normal">${esc(x.remark)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.querySelector('#mx').onclick = close; bg.onclick = e => { if (e.target === bg) close(); };
+  document.addEventListener('keydown', function k(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); } });
+}
+
+// ===================== DAILY (detailed) =====================
+function sevPill(sev) { const ic = { critical: '▲', serious: '◆', warning: '●' }[sev]; const lab = { critical: 'Critical', serious: 'Serious', warning: 'Watch' }[sev]; return `<span class="pill ${sev}"><span class="ico">${ic}</span>${lab}</span>`; }
+
+function renderDailyDetail(el) {
   const B = dayBundle(S.selDate);
   const { d, ms, tot, prevTot, prevN, alerts } = B;
   const prod = d.production || {}; const hasProd = Object.keys(prod).length > 0;
   const prodTot = F1_MACHINES.reduce((a, m) => a + (+prod[m] || 0), 0);
   const bl = backlog(S.selDate); const blTot = Object.values(bl).reduce((a, b) => a + b, 0);
-  const idx = ds.indexOf(S.selDate);
   const dlt = (cur, prev, d = 2, invert = true) => { if (prev == null || cur == null) return ''; const df = cur - prev; if (Math.abs(df) < 1e-9) return 'same as prior'; const bad = invert ? df > 0 : df < 0; return `<span class="${bad ? 'delta-up' : 'delta-down'}">${df > 0 ? '▲' : '▼'} ${fmt(Math.abs(df), d)}</span> vs prior ${prevN}-day avg`; };
   const cutPer1000 = tot.mtr ? tot.cutM / tot.mtr * 1000 : 0;
   const prevCut = prevTot && prevTot.mtr ? prevTot.cutM / prevTot.mtr * 1000 : null;
 
   el.innerHTML = `
-  <div class="pagehead">
-    <div><div class="sub">Factory 1 · Roll checking</div><h1>${fmtDate(S.selDate)}</h1></div>
-    ${dateNav(ds)}
-  </div>
   ${!hasProd ? `<div class="banner warn">Production for this day isn't entered yet, so “not checked” can't be worked out. <a href="#upload" onclick="S.prefillDate='${S.selDate}'">Enter production →</a></div>` : ''}
   <div class="grid kpis">
     <div class="card kpi"><div class="l">Takas checked</div><div class="v">${fmt(tot.takas)}${hasProd ? `<small>/ ${fmt(prodTot)} produced</small>` : ''}</div><div class="d">${hasProd ? `${fmt(prodTot - tot.takas)} not checked today · running balance <b>${fmt(blTot)}</b>` : '&nbsp;'}</div></div>
@@ -740,10 +871,7 @@ function lineChart(host, pts, opts = {}) {
 
 // ===================== TRENDS =====================
 const SEQ = ['#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6', '#1d4ed8', '#1e3a8a'];
-function renderTrends() {
-  const el = $('#v-trends'); const all = checkedDates();
-  if (!all.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Trends appear once reports are uploaded.</div>`; return; }
-  const ds = S.trendRange ? all.slice(-S.trendRange) : all;
+function renderTrendsDetail(el, ds) {
   const perDay = ds.map(x => ({ x, t: dayTotals(S.days[x].rolls), ms: machineStats(S.days[x].rolls) }));
   const allRolls = ds.flatMap(x => S.days[x].rolls);
   const T = dayTotals(allRolls), MS = machineStats(allRolls);
@@ -751,9 +879,6 @@ function renderTrends() {
   const firstMs = half ? machineStats(ds.slice(0, half).flatMap(x => S.days[x].rolls)) : null;
   const lastMs = half ? machineStats(ds.slice(half).flatMap(x => S.days[x].rolls)) : null;
   el.innerHTML = `
-  <div class="pagehead"><div><div class="sub">Factory 1 · ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div><h1>Quality trends</h1></div>
-    <div class="seg">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], [0, 'All']].map(([v, l]) => `<button class="${S.trendRange === v ? 'on' : ''}" onclick="S.trendRange=${v};render()">${l}</button>`).join('')}</div></div>
-  ${ds.length < 3 ? `<div class="banner info">Only ${ds.length} day${ds.length > 1 ? 's' : ''} uploaded — trends get meaningful after about a week of daily uploads.</div>` : ''}
   <div class="grid kpis">
     <div class="card kpi"><div class="l">Takas checked</div><div class="v">${fmt(T.takas)}</div><div class="d">${fmt(T.takas / ds.length, 0)} per day</div></div>
     <div class="card kpi"><div class="l">Metres checked</div><div class="v">${fmt(T.mtr)}</div><div class="d">${fmt(T.mtr / ds.length, 0)} per day</div></div>
