@@ -843,14 +843,18 @@ function renderTrends() {
   const per = ds.map(x => ({ x, t: dayTotals(S.days[x].rolls), ms: machineStats(S.days[x].rolls) }));
   const MS = machineStats(ds.flatMap(x => S.days[x].rolls)), T = dayTotals(ds.flatMap(x => S.days[x].rolls));
   const bad = MACS().filter(m => machineStatus(MS[m]) === 'red'), watch = MACS().filter(m => machineStatus(MS[m]) === 'orange');
+  const prodDays = ds.filter(x => Object.keys(S.days[x].production || {}).length);
+  const PB = {}; for (const x of prodDays) for (const m of MACS()) PB[m] = (PB[m] || 0) + (+S.days[x].production[m] || 0);
+  const hasP = prodDays.length > 0; const pTot = MACS().reduce((a, m) => a + (PB[m] || 0), 0);
   const dayChips = m => `<div class="days">${per.map(p => { const st = machineStatus(p.ms[m]); return `<span style="background:${st ? ZONE[st] : '#e2e8f0'}" data-tip="${fmtDate(p.x)}: ${p.ms[m] ? `${pct(p.ms[m].green, p.ms[m].takas)}% good · ${p.ms[m].red} second` : 'not checked'}">${p.x.slice(8)}</span>`; }).join('')}</div>`;
   el.innerHTML = `
   <div class="pagehead"><div><div class="sub">${FNAME()} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div><h1>Machine quality — last ${ds.length} day${ds.length > 1 ? 's' : ''}</h1></div>
     <div class="seg">${[3, 7, 14, 30].map(v => `<button class="${S.trendRange === v ? 'on' : ''}" onclick="S.trendRange=${v};render()">${v} days</button>`).join('')}</div></div>
-  <p class="headline">${bad.length ? `<b style="color:var(--bad)">${bad.length} machine${bad.length > 1 ? 's' : ''} in problem</b> (M${bad.join(', M')})` : '<b style="color:var(--ok)">No machine in problem</b>'}${watch.length ? ` · <b style="color:var(--warn)">${watch.length} to watch</b> (M${watch.join(', M')})` : ''} · ${pct(T.green, T.takas)}% of all takas good.</p>
+  <p class="headline">${bad.length ? `<b style="color:var(--bad)">${bad.length} machine${bad.length > 1 ? 's' : ''} in problem</b> (M${bad.join(', M')})` : '<b style="color:var(--ok)">No machine in problem</b>'}${watch.length ? ` · <b style="color:var(--warn)">${watch.length} to watch</b> (M${watch.join(', M')})` : ''} · ${pct(T.green, T.takas)}% of all takas good.${hasP ? ` · <b>${T.takas}</b> of <b>${pTot}</b> takas checked.` : ''}</p>
+  ${hasP && prodDays.length < ds.length ? `<div class="sub" style="margin:-6px 0 10px">Production not entered for ${ds.filter(x => !prodDays.includes(x)).map(x => fmtDate(x).replace(/, \d{4}$/, '')).join(', ')} — "produced" counts only the other days.</div>` : ''}
   <div class="card" style="margin-bottom:14px"><h2>Each machine — click for details</h2>${simpleLegend}
     <div class="sub" style="margin:-4px 0 10px">Machine colour: <b style="color:#15803d">Good</b> = no second-quality taka and ${MSTAT.greenMinPct}%+ good · <b style="color:#b91c1c">Problem</b> = ${MSTAT.redMinPct}%+ second quality · <b style="color:#b45309">Watch</b> = in between. Small boxes = each day.</div>
-    <div class="wall">${MACS().map(m => mcard(m, MS[m], MS[m] ? dayChips(m) : '', `openMachine(${m},'trend')`)).join('')}</div></div>
+    <div class="wall">${MACS().map(m => mcard(m, MS[m], MS[m] ? dayChips(m) : '', `openMachine(${m},'trend')`, hasP ? (PB[m] || 0) : null)).join('')}</div></div>
   <div class="card"><h2>Whole factory, day by day</h2>
     ${per.map(p => `<div class="daybar"><span>${fmtDate(p.x).replace(/, \d{4}$/, '')}</span>${zbar(p.t)}<span class="p" style="color:${p.t.red ? 'var(--bad)' : 'var(--ok)'}">${pct(p.t.green, p.t.takas)}% good</span></div>`).join('')}
     <div class="sub">Bar = share of good / watch / second-quality takas that day.</div></div>
