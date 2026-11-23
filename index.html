@@ -754,7 +754,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 
 // ===================== router =====================
 function renderNav() {
-  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history']];
+  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history'], ['reports', 'Reports']];
   if (canW()) items.push(['upload', 'Upload checking'], ['production', 'Production']);
   items.push(['history', 'History']);
   if (isAdmin) items.push(['access', 'Access']);
@@ -778,7 +778,7 @@ function render() {
   else if (S.view === 'production') renderProduction();
   else if (S.view === 'access') renderAccess();
   else if (S.view === 'machine') renderMachineHistory();
-  else if (S.view === 'reports') { location.hash = 'machine'; return; }
+  else if (S.view === 'reports') renderReports();
   else renderHistory();
 }
 
@@ -1401,6 +1401,7 @@ function renderMachineHistory() {
       <div style="display:flex;flex-direction:column;gap:14px">
         <label style="${lab}">Machine
           <select onchange="S.rep.mac=this.value;renderMachineHistory()">${MACS().map(m => `<option value="${m}" ${String(R.mac) === String(m) ? 'selected' : ''}>Machine ${m}</option>`).join('')}<option value="all" ${R.mac === 'all' ? 'selected' : ''}>All machines</option></select></label>
+        <div class="row" style="gap:6px">${[[1, 'Last day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="btn sm" onclick="repQuick(${n})">${l}</button>`).join('')}</div>
         <label style="${lab}">Start date<input type="date" value="${R.from}" onchange="S.rep.from=this.value;renderMachineHistory()"></label>
         <label style="${lab}">End date<input type="date" value="${R.to}" onchange="S.rep.to=this.value;renderMachineHistory()"></label>
       </div>
@@ -1454,7 +1455,7 @@ function renderReports() {
       <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155">From<input type="date" value="${R.from}" onchange="S.rep.from=this.value;renderReports()"></label>
       <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155">To<input type="date" value="${R.to}" onchange="S.rep.to=this.value;renderReports()"></label>
     </div>
-    <div class="row" style="margin-top:8px;gap:6px">${[[1, 'Last day'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="btn sm" onclick="repQuick(${n})">${l}</button>`).join('')}</div>
+    <div class="row" style="margin-top:8px;gap:6px">${[[1, 'Last day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="btn sm" onclick="repQuick(${n})">${l}</button>`).join('')}</div>
     ${R.from > R.to ? `<div class="banner err" style="margin-top:12px">"From" date is after "To" date.</div>` : ''}
     <div class="row" style="margin-top:16px">
       <button class="btn primary" id="repPdf" ${!D.checked || R.from > R.to ? 'disabled' : ''} onclick="downloadReportPdf()">Download PDF</button>
@@ -1476,7 +1477,7 @@ function renderReports() {
     ${S.factory === 2 ? `<div class="sub" style="margin-top:8px">As in your DIFF sheet, each checking date is compared with the previous day's production.</div>` : ''}`}
   </div></div>`;
 }
-function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const from = cd.slice(-n)[0]; S.rep.from = from; S.rep.to = to; renderReports(); }
+function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const from = cd.slice(-n)[0]; S.rep.from = from; S.rep.to = to; render(); }
 function repFileName(ext) { const R = S.rep; return `F${S.factory}-${R.mac === 'all' ? 'all-machines' : 'M' + R.mac}-${R.from}_to_${R.to}.${ext}`; }
 function saveBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 function reportColumns() {
