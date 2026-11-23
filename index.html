@@ -189,6 +189,7 @@ details summary{cursor:pointer;color:var(--acc);font-size:13px;font-weight:600}
   <section id="v-upload" class="hidden"></section>
   <section id="v-production" class="hidden"></section>
   <section id="v-machine" class="hidden"></section>
+  <section id="v-reports" class="hidden"></section>
   <section id="v-history" class="hidden"></section>
   <section id="v-access" class="hidden"></section>
 </main>
@@ -597,7 +598,7 @@ function setFactory(f, quiet) {
   S.factory = f; S.days = S.data[f] || (S.data[f] = {});
   try { localStorage.setItem('gk-qt-factory', f); } catch (e) {}
   if (FACTORIES[f].grade) Object.assign(GRADE, FACTORIES[f].grade);
-  S.selDate = null; S.selMac = null; S.mMac = null; S.pending = null; S.prodPending = null; S.prodDraft = null; S.prodDate = null;
+  S.selDate = null; S.selMac = null; S.mMac = null; S.rep = null; S.pending = null; S.prodPending = null; S.prodDraft = null; S.prodDate = null;
   document.querySelectorAll('#facSw button').forEach(b => b.classList.toggle('on', +b.dataset.f === f));
   renderNav();
   if (!quiet) afterLoad();
@@ -631,7 +632,7 @@ async function initStore() {
   const { data: prof } = await SB.from('profiles').select('id,name,role,email').eq('id', SESSION.user.id).maybeSingle();
   PROFILE = prof;
   $('#signout').style.display = ''; $('#signout').onclick = () => SB.auth.signOut();
-  if (!PROFILE || PROFILE.role === 'blocked') { S.loaded = true; setConn('warn', `Your login (${SESSION.user.email}) has no access yet. Ask the admin to set your role in the yarn tracker (Masters → Users).`); ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).innerHTML = ''); return; }
+  if (!PROFILE || PROFILE.role === 'blocked') { S.loaded = true; setConn('warn', `Your login (${SESSION.user.email}) has no access yet. Ask the admin to set your role in the yarn tracker (Masters → Users).`); ['daily', 'trends', 'machine', 'reports', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).innerHTML = ''); return; }
   isAdmin = PROFILE.role === 'admin';
   if (!isAdmin) { const { data: acc } = await SB.from('quality_access').select('factories').eq('user_id', SESSION.user.id).maybeSingle(); S.myFactories = (acc && acc.factories || []).map(Number); }
   const rl = isAdmin ? 'Admin' : S.myFactories.length ? 'Uploads ' + S.myFactories.map(f => 'F' + f).join(' + ') : 'View only';
@@ -753,7 +754,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 
 // ===================== router =====================
 function renderNav() {
-  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history']];
+  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history'], ['reports', 'Reports']];
   if (canW()) items.push(['upload', 'Upload checking'], ['production', 'Production']);
   items.push(['history', 'History']);
   if (isAdmin) items.push(['access', 'Access']);
@@ -761,11 +762,11 @@ function renderNav() {
 }
 function route() {
   const h = (location.hash || '#daily').slice(1);
-  S.view = ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].includes(h) ? h : 'daily';
+  S.view = ['daily', 'trends', 'machine', 'reports', 'upload', 'production', 'history', 'access'].includes(h) ? h : 'daily';
   if ((S.view === 'upload' || S.view === 'production') && !canW() && S.loaded) S.view = 'daily';
   if (S.view === 'access' && !isAdmin) S.view = 'daily';
   renderNav();
-  ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).classList.toggle('hidden', v !== S.view));
+  ['daily', 'trends', 'machine', 'reports', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).classList.toggle('hidden', v !== S.view));
   render();
 }
 addEventListener('hashchange', route);
@@ -777,6 +778,7 @@ function render() {
   else if (S.view === 'production') renderProduction();
   else if (S.view === 'access') renderAccess();
   else if (S.view === 'machine') renderMachineHistory();
+  else if (S.view === 'reports') renderReports();
   else renderHistory();
 }
 
@@ -1417,6 +1419,199 @@ function downloadMachineCsv() {
   const lines = [head.join(',')].concat(rows.map(r => [S.factory, r.mac, r.d, r.taka, r.mtr, r.fault, r.silai, r.line, r.tp, r.total, r.f == null ? '' : r.f.toFixed(2), gradeWord(r.g), r.cutM || '', r.remark, r.checker].map(q).join(',')));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `F${S.factory}-M${S.mMac}-rolls.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+// ===================== REPORTS (PDF / Excel) =====================
+const ddmmyyyy = iso => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+function reportData() {
+  const R = S.rep; const all = sortedDates().filter(x => x >= R.from && x <= R.to);
+  const macs = R.mac === 'all' ? MACS() : [+R.mac];
+  const rolls = all.flatMap(x => S.days[x].rolls.filter(r => macs.includes(r.mac)));
+  let produced = 0; const prodBy = {}; const noProdDays = [];
+  for (const x of all) {
+    const p = S.days[x].production || {};
+    if (!Object.keys(p).length) { if (S.days[x].rolls.length) noProdDays.push(x); continue; }
+    for (const m of macs) { const v = +p[m] || 0; produced += v; prodBy[m] = (prodBy[m] || 0) + v; }
+  }
+  const t = dayTotals(rolls);
+  const ms = machineStats(rolls);
+  const perMac = macs.map(m => ({ m, prod: prodBy[m] || 0, chk: ms[m] ? ms[m].takas : 0, s: ms[m] || null }));
+  return { days: all, macs, rolls, produced, checked: rolls.length, t, perMac, noProdDays };
+}
+function pctTxt(a, b) { return b ? (a / b * 100).toFixed(1) + '%' : '–'; }
+function renderReports() {
+  const el = $('#v-reports'); const ds = sortedDates();
+  if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
+  if (!S.rep) { const cd = checkedDates(); const to = cd[cd.length - 1] || ds[ds.length - 1]; S.rep = { mac: 'all', to, from: cd.slice(-7)[0] || to }; }
+  const R = S.rep;
+  const D = reportData();
+  const notChk = Math.max(0, D.produced - D.checked);
+  el.innerHTML = `<div class="pagehead"><div><div class="sub">${FNAME()}</div><h1>Download report</h1></div></div>
+  <div class="grid two" style="align-items:start">
+  <div class="card">
+    <h2>Choose</h2>
+    <div class="form" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <label style="grid-column:1/-1;display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155">Machine
+        <select onchange="S.rep.mac=this.value;renderReports()"><option value="all" ${R.mac === 'all' ? 'selected' : ''}>All machines</option>${MACS().map(m => `<option value="${m}" ${String(R.mac) === String(m) ? 'selected' : ''}>Machine ${m}</option>`).join('')}</select></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155">From<input type="date" value="${R.from}" onchange="S.rep.from=this.value;renderReports()"></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#334155">To<input type="date" value="${R.to}" onchange="S.rep.to=this.value;renderReports()"></label>
+    </div>
+    <div class="row" style="margin-top:8px;gap:6px">${[[1, 'Last day'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="btn sm" onclick="repQuick(${n})">${l}</button>`).join('')}</div>
+    ${R.from > R.to ? `<div class="banner err" style="margin-top:12px">"From" date is after "To" date.</div>` : ''}
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" id="repPdf" ${!D.checked || R.from > R.to ? 'disabled' : ''} onclick="downloadReportPdf()">Download PDF</button>
+      <button class="btn" ${!D.checked || R.from > R.to ? 'disabled' : ''} onclick="downloadReportXlsx()">Download Excel</button>
+    </div>
+    <div class="sub" style="margin-top:8px">The PDF uses the same columns as your ${FNAME()} checking report, with a summary at the end.</div>
+  </div>
+  <div class="card"><h2>Summary for this selection</h2>
+    ${!D.checked ? '<div class="muted">No rolls checked in this period.</div>' : `
+    <p class="headline">${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac} · ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}</p>
+    <div class="big3" style="grid-template-columns:repeat(3,1fr)">
+      <div class="t" style="background:#f8fafc;border-color:var(--line);color:var(--ink)"><div class="n">${D.produced}</div><div class="w">Produced</div></div>
+      <div class="t g"><div class="n">${D.checked}<small>${pctTxt(D.checked, D.produced)}</small></div><div class="w">Checked</div></div>
+      <div class="t o"><div class="n">${notChk}<small>${pctTxt(notChk, D.produced)}</small></div><div class="w">Not checked</div></div>
+    </div>
+    <div class="sub">${D.days.length} report day${D.days.length > 1 ? 's' : ''} · ${fmt(D.t.mtr)} m checked · ${D.t.green} good, ${D.t.orange} watch, ${D.t.red} second quality</div>
+    ${D.checked > D.produced && D.produced ? `<div class="banner warn" style="margin-top:10px">More rolls were checked than produced in this period — some checked rolls were produced before the start date.</div>` : ''}
+    ${D.noProdDays.length ? `<div class="banner warn" style="margin-top:10px">Production not entered for ${D.noProdDays.map(x => fmtDate(x).replace(/, \d{4}$/, '')).join(', ')} — "produced" is short for those days.</div>` : ''}
+    ${S.factory === 2 ? `<div class="sub" style="margin-top:8px">As in your DIFF sheet, each checking date is compared with the previous day's production.</div>` : ''}`}
+  </div></div>`;
+}
+function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const from = cd.slice(-n)[0]; S.rep.from = from; S.rep.to = to; renderReports(); }
+function repFileName(ext) { const R = S.rep; return `F${S.factory}-${R.mac === 'all' ? 'all-machines' : 'M' + R.mac}-${R.from}_to_${R.to}.${ext}`; }
+function saveBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
+function reportColumns() {
+  // same columns as the factory's own checking report
+  return S.factory === 2
+    ? [['DATE', 52, r => ddmmyyyy(r.date)], ['MAC', 26, r => r.mac, 'c'], ['TAKA', 38, r => r.taka, 'c'], ['FAULT', 34, r => r.fault || '', 'c'], ['SILAI', 34, r => r.silai || '', 'c'], ['STOP', 32, r => r.tp || '', 'c'], ['TOTAL', 36, r => r.total, 'c', 'grade'], ['METER', 38, r => r.mtr, 'c'], ['cut', 28, r => r.cutCol || '', 'c'], ['REMARK', 120, r => r.remark], ['CHECKER', 62, r => r.checker]]
+    : [['DATE', 54, r => ddmmyyyy(r.date)], ['MAC', 28, r => r.mac, 'c'], ['TAKA NO', 44, r => r.taka, 'c'], ['TP', 26, r => r.tp || '', 'c'], ['FAULT', 34, r => r.fault, 'c'], ['SILAI', 32, r => r.silai || '', 'c'], ['LINE', 30, r => r.line || '', 'c'], ['TOTAL FAULT', 54, r => r.total, 'c', 'grade'], ['MTR', 36, r => r.mtr, 'c'], ['REMARK', 162, r => r.remark]];
+}
+let pdfLibLoading = null;
+async function downloadReportPdf() {
+  const b = $('#repPdf'); b.disabled = true; b.textContent = 'Making PDF…';
+  try {
+    if (!window.PDFLib) { if (!pdfLibLoading) pdfLibLoading = loadScript('https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js'); await pdfLibLoading; }
+    const bytes = await buildReportPdf();
+    saveBlob(new Blob([bytes], { type: 'application/pdf' }), repFileName('pdf'));
+    toast('PDF downloaded');
+  } catch (e) { toast('Could not make PDF: ' + (e.message || e)); }
+  b.disabled = false; b.textContent = 'Download PDF';
+}
+async function buildReportPdf() {
+  const { PDFDocument, StandardFonts, rgb } = PDFLib;
+  const R = S.rep, D = reportData();
+  const doc = await PDFDocument.create();
+  const F = await doc.embedFont(StandardFonts.Helvetica), FB = await doc.embedFont(StandardFonts.HelveticaBold);
+  const W = 595.28, H = 841.89, M = 20, RH = 14.5, FS = 7.6;
+  const cols = reportColumns(); const tw = cols.reduce((a, c) => a + c[1], 0); const scale = (W - 2 * M) / tw; cols.forEach(c => c[1] *= scale);
+  const clean = v => String(v ?? '').replace(/[^\x20-\x7E]/g, ' ');
+  const fit = (txt, w, f, sz) => { txt = clean(txt); if (f.widthOfTextAtSize(txt, sz) <= w) return txt; while (txt.length > 1 && f.widthOfTextAtSize(txt + '…'.replace('…', '..'), sz) > w) txt = txt.slice(0, -1); return txt + '..'; };
+  const GREY = rgb(0.85, 0.85, 0.85), LINE = rgb(0.55, 0.55, 0.55), INK = rgb(0, 0, 0);
+  const GBG = { green: rgb(0.86, 0.96, 0.88), orange: rgb(1, 0.93, 0.78), red: rgb(0.99, 0.83, 0.83) };
+  const title = `GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`;
+  const subtitle = `${R.mac === 'all' ? 'ALL MACHINES' : 'MACHINE ' + R.mac}   |   ${ddmmyyyy(R.from)} TO ${ddmmyyyy(R.to)}   |   ${D.checked} ROLLS`;
+  let page, y; const pages = [];
+  const newPage = (withHeader = true) => {
+    page = doc.addPage([W, H]); pages.push(page); y = H - M;
+    page.drawText(title, { x: M, y: y - 10, size: 11, font: FB, color: INK });
+    page.drawText(subtitle, { x: M, y: y - 24, size: 8.5, font: F, color: rgb(0.25, 0.25, 0.25) });
+    y -= 34; if (withHeader) drawHeader();
+  };
+  const drawHeader = () => {
+    let x = M; page.drawRectangle({ x: M, y: y - RH - 4, width: W - 2 * M, height: RH + 4, color: GREY });
+    for (const c of cols) {
+      const lbl = c[0]; const sz = 7.2; const tw2 = FB.widthOfTextAtSize(lbl, sz);
+      page.drawText(lbl, { x: x + (c[1] - tw2) / 2, y: y - RH + 1, size: sz, font: FB, color: INK });
+      page.drawLine({ start: { x, y }, end: { x, y: y - RH - 4 }, thickness: 0.5, color: LINE }); x += c[1];
+    }
+    page.drawLine({ start: { x, y }, end: { x, y: y - RH - 4 }, thickness: 0.5, color: LINE });
+    page.drawRectangle({ x: M, y: y - RH - 4, width: W - 2 * M, height: RH + 4, borderColor: LINE, borderWidth: 0.6 });
+    y -= RH + 4;
+  };
+  newPage();
+  const rows = D.rolls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.mac - b.mac);
+  for (const r of rows) {
+    if (y - RH < M + 26) newPage();
+    const g = gradeOf(takaF100(r)); let x = M;
+    for (const c of cols) {
+      if (c[4] === 'grade' && g) page.drawRectangle({ x: x + 0.3, y: y - RH + 0.3, width: c[1] - 0.6, height: RH - 0.6, color: GBG[g] });
+      const v = fit(c[2](r), c[1] - 6, F, FS); const tw2 = F.widthOfTextAtSize(v, FS);
+      page.drawText(v, { x: c[3] === 'c' ? x + (c[1] - tw2) / 2 : x + 3, y: y - RH + 4.3, size: FS, font: c[4] === 'grade' ? FB : F, color: INK });
+      page.drawLine({ start: { x, y }, end: { x, y: y - RH }, thickness: 0.4, color: LINE }); x += c[1];
+    }
+    page.drawLine({ start: { x, y }, end: { x, y: y - RH }, thickness: 0.4, color: LINE });
+    page.drawLine({ start: { x: M, y: y - RH }, end: { x: W - M, y: y - RH }, thickness: 0.4, color: LINE });
+    y -= RH;
+  }
+  // ---- summary ----
+  const notChk = Math.max(0, D.produced - D.checked);
+  const perMacRows = R.mac === 'all' ? D.perMac.filter(p => p.prod || p.chk) : [];
+  const need = 120 + (perMacRows.length ? (perMacRows.length + 2) * 13 : 0);
+  if (y - need < M) newPage(false);
+  y -= 16;
+  const boxTop = y, bx = M, bw = W - 2 * M;
+  page.drawText('SUMMARY', { x: bx + 10, y: y - 16, size: 10, font: FB });
+  page.drawText(`${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}  (${D.days.length} report day${D.days.length > 1 ? 's' : ''})`, { x: bx + 75, y: y - 16, size: 8.5, font: F });
+  y -= 30;
+  const kv = [
+    ['Rolls produced', `${D.produced}`, ''],
+    ['Rolls checked', `${D.checked}`, D.produced ? `${pctTxt(D.checked, D.produced)} of produced` : ''],
+    ['Rolls not checked', `${notChk}`, D.produced ? `${pctTxt(notChk, D.produced)} of produced` : ''],
+    ['Metres checked', fmt(D.t.mtr), ''],
+    ['Quality of checked rolls', `${D.t.green} good  |  ${D.t.orange} watch  |  ${D.t.red} second quality`, `${pctTxt(D.t.red, D.t.takas)} second quality`]];
+  for (const [k, v, n] of kv) {
+    page.drawText(k, { x: bx + 10, y, size: 9, font: F, color: rgb(0.25, 0.25, 0.25) });
+    page.drawText(clean(v), { x: bx + 150, y, size: 9.5, font: FB });
+    if (n) page.drawText(n, { x: bx + 360, y, size: 9, font: FB, color: k === 'Rolls not checked' ? rgb(0.7, 0.35, 0) : k === 'Rolls checked' ? rgb(0, 0.45, 0.2) : D.t.red ? rgb(0.7, 0.1, 0.1) : rgb(0, 0.45, 0.2) });
+    y -= 14;
+  }
+  const notes = [];
+  if (D.checked > D.produced && D.produced) notes.push('More rolls were checked than produced in this period (rolls produced before the start date were checked inside it).');
+  if (D.noProdDays.length) notes.push('Production not entered for: ' + D.noProdDays.map(ddmmyyyy).join(', ') + '.');
+  if (S.factory === 2) notes.push('Production is matched to checking dates as in the DIFF sheet (previous day\'s production).');
+  notes.push(`Grade per roll: good up to ${GRADE.greenMax} faults per 100 m, watch ${GRADE.greenMax}-${GRADE.redMin}, second quality ${GRADE.redMin}+ (TOTAL cell colour).`);
+  for (const n of notes) { page.drawText(fit(n, bw - 20, F, 7.5), { x: bx + 10, y, size: 7.5, font: F, color: rgb(0.35, 0.35, 0.35) }); y -= 11; }
+  if (perMacRows.length) {
+    y -= 6;
+    const pc = [['MACHINE', 70], ['PRODUCED', 80], ['CHECKED', 80], ['% CHECKED', 80], ['NOT CHECKED', 85], ['% NOT CHECKED', 85], ['SECOND QUALITY', 75]];
+    const sc = (bw - 20) / pc.reduce((a, c) => a + c[1], 0); pc.forEach(c => c[1] *= sc);
+    const row = (vals, bold, bg) => {
+      let x = bx + 10; if (bg) page.drawRectangle({ x, y: y - 12, width: bw - 20, height: 12, color: bg });
+      vals.forEach((v, i) => { const t2 = clean(v); const f2 = bold ? FB : F; const w2 = f2.widthOfTextAtSize(t2, 7.5); page.drawText(t2, { x: x + (pc[i][1] - w2) / 2, y: y - 9, size: 7.5, font: f2 }); page.drawLine({ start: { x, y }, end: { x, y: y - 12 }, thickness: 0.4, color: LINE }); x += pc[i][1]; });
+      page.drawLine({ start: { x, y }, end: { x, y: y - 12 }, thickness: 0.4, color: LINE });
+      page.drawLine({ start: { x: bx + 10, y: y - 12 }, end: { x, y: y - 12 }, thickness: 0.4, color: LINE });
+      y -= 12;
+    };
+    page.drawLine({ start: { x: bx + 10, y }, end: { x: bx + bw - 10, y }, thickness: 0.4, color: LINE });
+    row(pc.map(c => c[0]), true, GREY);
+    for (const p of perMacRows) row([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0]);
+    row(['TOTAL', D.produced, D.checked, pctTxt(D.checked, D.produced), notChk, pctTxt(notChk, D.produced), D.t.red], true, GREY);
+  }
+  y -= 8;
+  page.drawRectangle({ x: bx, y, width: bw, height: boxTop - y, borderColor: rgb(0.2, 0.2, 0.2), borderWidth: 0.8 });
+  // footer on every page
+  const gen = new Date().toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  pages.forEach((pg, i) => { pg.drawText(clean(`Generated ${gen} from gopi-quality.vercel.app`), { x: M, y: 10, size: 7, font: F, color: rgb(0.45, 0.45, 0.45) }); const t2 = `Page ${i + 1} of ${pages.length}`; pg.drawText(t2, { x: W - M - F.widthOfTextAtSize(t2, 7), y: 10, size: 7, font: F, color: rgb(0.45, 0.45, 0.45) }); });
+  return await doc.save();
+}
+async function downloadReportXlsx() {
+  try {
+    if (!window.XLSX) await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    const R = S.rep, D = reportData(); const cols = reportColumns();
+    const rows = D.rolls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.mac - b.mac);
+    const aoa = [[`GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`], [`${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}`], [],
+      cols.map(c => c[0]).concat(['PER 100 M', 'GRADE'])];
+    for (const r of rows) { const f = takaF100(r); aoa.push(cols.map(c => { const v = c[2](r); return v === '' ? '' : (typeof v === 'number' || /^\d+(\.\d+)?$/.test(String(v)) && c[0] !== 'DATE' ? +v : v); }).concat([f == null ? '' : +f.toFixed(2), gradeWord(gradeOf(f))])); }
+    const notChk = Math.max(0, D.produced - D.checked);
+    aoa.push([], ['SUMMARY'], ['Rolls produced', D.produced], ['Rolls checked', D.checked, D.produced ? pctTxt(D.checked, D.produced) + ' of produced' : ''], ['Rolls not checked', notChk, D.produced ? pctTxt(notChk, D.produced) + ' of produced' : ''], ['Metres checked', D.t.mtr], ['Good / watch / second quality', D.t.green, D.t.orange, D.t.red]);
+    if (R.mac === 'all') { aoa.push([], ['MACHINE', 'PRODUCED', 'CHECKED', '% CHECKED', 'NOT CHECKED', '% NOT CHECKED', 'SECOND QUALITY']); D.perMac.filter(p => p.prod || p.chk).forEach(p => aoa.push([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0])); }
+    const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = cols.map(c => ({ wch: Math.max(8, Math.round(c[1] / 5)) })).concat([{ wch: 10 }, { wch: 14 }]);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), repFileName('xlsx'));
+    toast('Excel downloaded');
+  } catch (e) { toast('Could not make Excel: ' + (e.message || e)); }
 }
 
 // ===================== ACCESS (admin) =====================
