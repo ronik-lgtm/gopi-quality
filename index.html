@@ -144,6 +144,21 @@ tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
 .daybar .p{text-align:right;font-weight:700}
 .modal.wide{max-width:600px;max-height:90vh;overflow:auto}
 .toggle{margin:18px 0 10px}
+.attn div.go{cursor:pointer;transition:background .1s,border-color .1s}
+.attn div.go:hover{background:#f8fafc;border-color:#cbd5e1}
+.attn div.go::after{content:'›';margin-left:auto;color:var(--mut);font-size:18px;line-height:1}
+.tk{display:inline-block;padding:1px 8px;margin:0 2px;border-radius:6px;background:var(--badbg);color:var(--bad);font-weight:700;border:1px solid #fecaca;cursor:pointer;font:inherit;font-size:13px}
+.tk:hover{background:#fee2e2;border-color:#f87171}
+.tk.o{background:var(--warnbg);color:var(--warn);border-color:#fde68a}
+.tk.g{background:var(--okbg);color:var(--ok);border-color:#a7f3d0}
+tr.tkrow{cursor:pointer} tr.tkrow:hover td{background:#f8fafc}
+.seq{display:flex;flex-wrap:wrap;gap:4px}
+.seq button{font:inherit;font-size:11px;font-weight:700;color:#fff;border:2px solid transparent;border-radius:5px;padding:3px 6px;cursor:pointer}
+.seq button.cur{border-color:#0f172a;box-shadow:0 0 0 2px #fff inset}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:12px 0}
+.facts>div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff}
+.facts .l{font-size:11px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.facts .v{font-size:18px;font-weight:700}
 details summary{cursor:pointer;color:var(--acc);font-size:13px;font-weight:600}
 @media(max-width:720px){main{padding:10px 10px 60px}.kpi .v{font-size:17px}input,select,textarea{font-size:16px}.brand small{display:none}th,td{padding:7px 8px}}
 </style>
@@ -665,8 +680,8 @@ function renderDaily() {
   const skipped = F1_MACHINES.filter(m => (+prod[m] || 0) > 0 && !ms[m]);
   // plain-language attention list
   const att = [];
-  Object.values(ms).filter(s => s.red).sort((a, b) => b.red - a.red).forEach(s => att.push(`<div><b style="color:var(--bad)">M${s.mac}</b><span>${s.red} second-quality taka${s.red > 1 ? 's' : ''} — #${s.redTakas.join(', #')}</span></div>`));
-  Object.values(ms).filter(s => !s.red && machineStatus(s) === 'orange').forEach(s => att.push(`<div><b style="color:var(--warn)">M${s.mac}</b><span>only ${pct(s.green, s.takas)}% good takas — keep an eye on it</span></div>`));
+  Object.values(ms).filter(s => s.red).sort((a, b) => b.red - a.red).forEach(s => att.push(`<div class="go" onclick="openMachine(${s.mac},'day')"><b style="color:var(--bad)">M${s.mac}</b><span>${s.red} second-quality taka${s.red > 1 ? 's' : ''} — ${s.redTakas.map(t => tkBtn(S.selDate, s.mac, t)).join(' ')}</span></div>`));
+  Object.values(ms).filter(s => !s.red && machineStatus(s) === 'orange').forEach(s => { const worst = d.rolls.filter(r => r.mac === s.mac).sort((a, b) => takaF100(b) - takaF100(a)).slice(0, 2); att.push(`<div class="go" onclick="openMachine(${s.mac},'day')"><b style="color:var(--warn)">M${s.mac}</b><span>only ${pct(s.green, s.takas)}% good takas — worst: ${worst.map(r => tkBtn(S.selDate, s.mac, r.taka, gradeOf(takaF100(r)))).join(' ')}</span></div>`); });
   if (skipped.length) att.push(`<div><b class="muted">M${skipped.join(', M')}</b><span>produced but nothing checked yet</span></div>`);
   el.innerHTML = `
   <div class="pagehead"><div><div class="sub">Factory 1 · Daily report</div><h1>${fmtDate(S.selDate)}</h1></div>${dateNav(ds)}</div>
@@ -702,10 +717,68 @@ function renderTrends() {
   <div id="trendDetail"></div>`;
   if (S.showTDetail) renderTrendsDetail($('#trendDetail'), ds);
 }
+function showModal(html) {
+  document.querySelectorAll('.modal-bg.pop').forEach(x => x.remove());
+  const bg = document.createElement('div'); bg.className = 'modal-bg pop'; bg.innerHTML = `<div class="modal wide">${html}</div>`;
+  document.body.appendChild(bg);
+  const close = () => { bg.remove(); document.removeEventListener('keydown', k); };
+  function k(e) { if (e.key === 'Escape') close(); }
+  bg.onclick = e => { if (e.target === bg) close(); };
+  bg.querySelectorAll('[data-close]').forEach(b => b.onclick = close);
+  document.addEventListener('keydown', k);
+  return bg;
+}
+const gradeWord = g => ({ green: 'Good', orange: 'Watch', red: 'Second quality' }[g] || '');
+const gradeCls = g => ({ green: 'g', orange: 'o', red: '' }[g] ?? '');
+const tkBtn = (date, m, taka, g = 'red') => `<button class="tk ${gradeCls(g)}" onclick="event.stopPropagation();openTaka('${date}',${m},'${esc(taka)}')">#${esc(taka)}</button>`;
+// one roll (taka) in detail
+function openTaka(date, m, taka) {
+  const d = S.days[date]; if (!d) return;
+  const r = d.rolls.find(x => x.mac === m && String(x.taka) === String(taka)); if (!r) return;
+  const f = takaF100(r), g = gradeOf(f);
+  const same = d.rolls.filter(x => x.mac === m).sort((a, b) => (+a.taka || 0) - (+b.taka || 0) || String(a.taka).localeCompare(String(b.taka)));
+  const others = same.filter(x => x !== r);
+  const oth = others.length ? others.reduce((a, x) => ({ f: a.f + x.total, m: a.m + x.mtr }), { f: 0, m: 0 }) : null;
+  const othF = oth && oth.m ? oth.f / oth.m * 100 : null;
+  const i = same.indexOf(r);
+  const nb = [same[i - 1], same[i + 1]].filter(Boolean);
+  const nbBad = nb.filter(x => gradeOf(takaF100(x)) === 'red' && Math.abs((+x.taka || 0) - (+r.taka || 0)) === 1);
+  // plain-language reading
+  const notes = [];
+  if (g === 'red') notes.push(`<b>Second quality</b> — ${fmt(f, 1)} faults per 100 m (second quality starts at ${GRADE.redMin}).`);
+  else if (g === 'orange') notes.push(`<b>Watch</b> — ${fmt(f, 1)} faults per 100 m (good is up to ${GRADE.greenMax}).`);
+  else notes.push(`<b>Good</b> — ${fmt(f, 1)} faults per 100 m.`);
+  if (othF != null) notes.push(othF < f * 0.6 ? `Much worse than the machine's other takas that day (${fmt(othF, 1)} per 100 m) — <b>something went wrong during this taka</b>.` : othF >= GRADE.greenMax ? `The machine's other takas were also weak (${fmt(othF, 1)} per 100 m) — <b>looks like a machine / beam problem, not a one-off</b>.` : `The machine's other takas that day averaged ${fmt(othF, 1)} per 100 m.`);
+  if (nbBad.length) notes.push(`The taka right next to it (#${nbBad.map(x => esc(x.taka)).join(', #')}) is also second quality — <b>the problem lasted across consecutive takas</b>.`);
+  if (r.mtr && same.length >= 3) { const med = median(same.map(x => x.mtr)); if (r.mtr < med * 0.6) notes.push(`This is a <b>short taka</b> (${r.mtr} m vs usual ${fmt(med)} m) — fewer metres make the per-100 m number look worse.`); }
+  if (r.cuts) notes.push(`Taarcut: ${r.cuts} cut${r.cuts > 1 ? 's' : ''}, about ${fmt(r.cutM)} m cut out.`);
+  if (r.loding) notes.push('Loding marked on this taka.');
+  if (r.hol) notes.push('<b>Hole</b> marked on this taka.');
+  showModal(`
+    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Taka #${esc(r.taka)}</h1><div class="row"><button class="btn sm" onclick="openMachine(${m},'day','${date}')">‹ Machine ${m}</button><button class="btn sm" data-close>Close</button></div></div>
+    <div class="sub" style="margin-bottom:12px">Machine ${m} · checked ${fmtDate(date)}</div>
+    <div class="mcard ${g}" style="cursor:default"><div class="mt"><span class="pc">${fmt(f, 1)}<small>faults per 100 m</small></span><span class="st">${gradeWord(g)}</span></div>
+      <div class="zbar" style="height:10px">${(() => { const mx = Math.max(GRADE.redMin * 1.5, f * 1.05); return `<i style="flex:${GRADE.greenMax / mx};background:${ZONE.green}"></i><i style="flex:${(GRADE.redMin - GRADE.greenMax) / mx};background:${ZONE.orange}"></i><i style="flex:${(mx - GRADE.redMin) / mx};background:${ZONE.red}"></i>`; })()}</div>
+      <div class="ms">Scale: green up to ${GRADE.greenMax} · orange ${GRADE.greenMax}–${GRADE.redMin} · red ${GRADE.redMin}+</div></div>
+    <div class="facts">
+      <div><div class="l">Metres</div><div class="v">${fmt(r.mtr)}</div></div>
+      <div><div class="l">Total faults</div><div class="v">${r.total}</div></div>
+      <div><div class="l">Taarcut</div><div class="v">${r.cuts ? `${r.cuts}<small class="muted" style="font-size:12px"> cuts · ${fmt(r.cutM)} m</small>` : '–'}</div></div>
+      <div><div class="l">Loding</div><div class="v">${r.loding ? 'Yes' : '–'}</div></div>
+    </div>
+    <div class="sub" style="margin:-4px 0 10px">Faults split: knitting fault ${r.fault} · silai ${r.silai} · line ${r.line}${r.tp ? ` · TP ${r.tp}` : ''}</div>
+    ${r.remark ? `<div class="banner" style="margin-bottom:12px"><b>Checker's remark:</b> ${esc(r.remark)}</div>` : ''}
+    <h2>What this means</h2>
+    <div class="attn" style="margin-bottom:14px">${notes.map(n => `<div><span>${n}</span></div>`).join('')}</div>
+    <h2>All takas from machine ${m} that day</h2>
+    <div class="seq">${same.map(x => { const gx = gradeOf(takaF100(x)); return `<button class="${x === r ? 'cur' : ''}" style="background:${ZONE[gx] || '#94a3b8'}" onclick="openTaka('${date}',${m},'${esc(x.taka)}')" data-tip="#${esc(x.taka)} · ${x.total} faults in ${x.mtr} m">${esc(x.taka)}</button>`; }).join('')}</div>
+    <div class="sub" style="margin-top:6px">In taka-number order. Click any taka to open it.</div>`);
+}
+
 // machine pop-up: last 3 checked days up to the selected / latest day
-function openMachine(m, mode) {
+function openMachine(m, mode, day) {
   const all = checkedDates();
-  const end = mode === 'day' ? S.selDate : all[all.length - 1];
+  const end = mode === 'day' ? (day || S.selDate) : all[all.length - 1];
   const ds = mode === 'trend' ? all.slice(-S.trendRange) : all.filter(x => x <= end).slice(-3);
   const rows = ds.map(x => ({ x, s: machineStats(S.days[x].rolls)[m] || null, rolls: S.days[x].rolls.filter(r => r.mac === m) }));
   const allS = machineStats(ds.flatMap(x => S.days[x].rolls.filter(r => r.mac === m)))[m];
@@ -715,21 +788,16 @@ function openMachine(m, mode) {
   if (firstG && lastG && firstG !== lastG) { const a = pct(firstG.s.green, firstG.s.takas), b = pct(lastG.s.green, lastG.s.takas); trend = b - a >= 10 ? '<span style="color:var(--ok);font-weight:700">▲ Improving</span>' : a - b >= 10 ? '<span style="color:var(--bad);font-weight:700">▼ Getting worse</span>' : '<span class="muted" style="font-weight:700">● Steady</span>'; }
   const seconds = rows.flatMap(r => r.rolls.filter(x => gradeOf(takaF100(x)) === 'red').map(x => ({ ...x, d: r.x })));
   const dayRows = mode === 'day' ? rows.filter(r => r.x === end) : [];
-  const bg = document.createElement('div'); bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal wide">
-    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" id="mx">Close</button></div>
+  showModal(`
+    <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" data-close>Close</button></div>
     <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div>
     ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div></div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
     <h2>Day by day</h2>
     ${rows.map(r => `<div class="daybar"><span>${fmtDate(r.x).replace(/, \d{4}$/, '')}</span>${r.s ? zbar(r.s) : '<div class="zbar"></div>'}<span class="p" style="color:${r.s ? ZONE[machineStatus(r.s)] : 'var(--mut)'}">${r.s ? pct(r.s.green, r.s.takas) + '% good' : 'not checked'}</span></div>
       ${r.s ? `<div class="sub" style="margin:-4px 0 8px 130px">${r.s.takas} takas · ${r.s.green} good · ${r.s.orange} watch · ${r.s.red} second</div>` : ''}`).join('')}
-    ${seconds.length ? `<h2 style="margin-top:14px">Second-quality takas</h2><div class="attn">${seconds.map(x => `<div><b style="color:var(--bad)">#${esc(x.taka)}</b><span>${fmtDate(x.d).replace(/, \d{4}$/, '')} · ${x.total} faults in ${x.mtr} m${x.remark ? ' · ' + esc(x.remark) : ''}</span></div>`).join('')}</div>` : ''}
-    ${dayRows.length && dayRows[0].rolls.length ? `<h2 style="margin-top:14px">All takas on ${fmtDate(end).replace(/, \d{4}$/, '')}</h2><div class="tbl-wrap" style="max-height:260px"><table><thead><tr><th>Taka</th><th class="n">Metres</th><th class="n">Faults</th><th>Grade</th><th>Remark</th></tr></thead><tbody>${dayRows[0].rolls.map(x => { const g = gradeOf(takaF100(x)); return `<tr><td>${esc(x.taka)}</td><td class="n">${x.mtr}</td><td class="n">${x.total}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[g] || ''}</td><td class="muted" style="white-space:normal">${esc(x.remark)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
-  </div>`;
-  document.body.appendChild(bg);
-  const close = () => bg.remove();
-  bg.querySelector('#mx').onclick = close; bg.onclick = e => { if (e.target === bg) close(); };
-  document.addEventListener('keydown', function k(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', k); } });
+    ${seconds.length ? `<h2 style="margin-top:14px">Second-quality takas</h2><div class="attn">${seconds.map(x => `<div class="go" onclick="openTaka('${x.d}',${m},'${esc(x.taka)}')"><b style="color:var(--bad)">#${esc(x.taka)}</b><span>${fmtDate(x.d).replace(/, \d{4}$/, '')} · ${x.total} faults in ${x.mtr} m${x.remark ? ' · ' + esc(x.remark) : ''}</span></div>`).join('')}</div>` : ''}
+    ${dayRows.length && dayRows[0].rolls.length ? `<h2 style="margin-top:14px">All takas on ${fmtDate(end).replace(/, \d{4}$/, '')} <span class="sub" style="font-weight:500">· click a taka for details</span></h2><div class="tbl-wrap" style="max-height:260px"><table><thead><tr><th>Taka</th><th class="n">Metres</th><th class="n">Faults</th><th>Grade</th><th>Remark</th></tr></thead><tbody>${dayRows[0].rolls.map(x => { const g = gradeOf(takaF100(x)); return `<tr class="tkrow" onclick="openTaka('${end}',${m},'${esc(x.taka)}')"><td><b>${esc(x.taka)}</b></td><td class="n">${x.mtr}</td><td class="n">${x.total}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[g] || ''}</td><td class="muted" style="white-space:normal">${esc(x.remark)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
+`);
 }
 
 // ===================== DAILY (detailed) =====================
