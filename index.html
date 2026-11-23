@@ -150,6 +150,9 @@ tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
 .daybar .p{text-align:right;font-weight:700}
 .modal.wide{max-width:600px;max-height:90vh;overflow:auto}
 .toggle{margin:18px 0 10px}
+.macpick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.macpick button{font:inherit;font-weight:700;font-size:13px;min-width:52px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);border-left-width:4px;background:#fff;cursor:pointer;color:var(--ink)}
+.macpick button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .attn div.go{cursor:pointer;transition:background .1s,border-color .1s}
 .attn div.go:hover{background:#f8fafc;border-color:#cbd5e1}
 .attn div.go::after{content:'›';margin-left:auto;color:var(--mut);font-size:18px;line-height:1}
@@ -185,6 +188,7 @@ details summary{cursor:pointer;color:var(--acc);font-size:13px;font-weight:600}
   <section id="v-trends" class="hidden"></section>
   <section id="v-upload" class="hidden"></section>
   <section id="v-production" class="hidden"></section>
+  <section id="v-machine" class="hidden"></section>
   <section id="v-history" class="hidden"></section>
   <section id="v-access" class="hidden"></section>
 </main>
@@ -593,7 +597,7 @@ function setFactory(f, quiet) {
   S.factory = f; S.days = S.data[f] || (S.data[f] = {});
   try { localStorage.setItem('gk-qt-factory', f); } catch (e) {}
   if (FACTORIES[f].grade) Object.assign(GRADE, FACTORIES[f].grade);
-  S.selDate = null; S.selMac = null; S.pending = null; S.prodPending = null; S.prodDraft = null; S.prodDate = null;
+  S.selDate = null; S.selMac = null; S.mMac = null; S.pending = null; S.prodPending = null; S.prodDraft = null; S.prodDate = null;
   document.querySelectorAll('#facSw button').forEach(b => b.classList.toggle('on', +b.dataset.f === f));
   renderNav();
   if (!quiet) afterLoad();
@@ -627,7 +631,7 @@ async function initStore() {
   const { data: prof } = await SB.from('profiles').select('id,name,role,email').eq('id', SESSION.user.id).maybeSingle();
   PROFILE = prof;
   $('#signout').style.display = ''; $('#signout').onclick = () => SB.auth.signOut();
-  if (!PROFILE || PROFILE.role === 'blocked') { S.loaded = true; setConn('warn', `Your login (${SESSION.user.email}) has no access yet. Ask the admin to set your role in the yarn tracker (Masters → Users).`); ['daily', 'trends', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).innerHTML = ''); return; }
+  if (!PROFILE || PROFILE.role === 'blocked') { S.loaded = true; setConn('warn', `Your login (${SESSION.user.email}) has no access yet. Ask the admin to set your role in the yarn tracker (Masters → Users).`); ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).innerHTML = ''); return; }
   isAdmin = PROFILE.role === 'admin';
   if (!isAdmin) { const { data: acc } = await SB.from('quality_access').select('factories').eq('user_id', SESSION.user.id).maybeSingle(); S.myFactories = (acc && acc.factories || []).map(Number); }
   const rl = isAdmin ? 'Admin' : S.myFactories.length ? 'Uploads ' + S.myFactories.map(f => 'F' + f).join(' + ') : 'View only';
@@ -701,10 +705,9 @@ async function deleteDay(date) {
 }
 
 function afterLoad() {
-  renderNav();
   const ds = sortedDates();
   if (!S.selDate || !S.days[S.selDate]) { const cd = checkedDates(); S.selDate = cd[cd.length - 1] || ds[ds.length - 1] || null; }
-  render();
+  route(); // re-check the page in the address bar now that rights are known
 }
 
 // ===================== analytics helpers =====================
@@ -750,7 +753,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 
 // ===================== router =====================
 function renderNav() {
-  const items = [['daily', 'Daily report'], ['trends', 'Trends']];
+  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history']];
   if (canW()) items.push(['upload', 'Upload checking'], ['production', 'Production']);
   items.push(['history', 'History']);
   if (isAdmin) items.push(['access', 'Access']);
@@ -758,11 +761,11 @@ function renderNav() {
 }
 function route() {
   const h = (location.hash || '#daily').slice(1);
-  S.view = ['daily', 'trends', 'upload', 'production', 'history', 'access'].includes(h) ? h : 'daily';
+  S.view = ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].includes(h) ? h : 'daily';
   if ((S.view === 'upload' || S.view === 'production') && !canW() && S.loaded) S.view = 'daily';
   if (S.view === 'access' && !isAdmin) S.view = 'daily';
   renderNav();
-  ['daily', 'trends', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).classList.toggle('hidden', v !== S.view));
+  ['daily', 'trends', 'machine', 'upload', 'production', 'history', 'access'].forEach(v => $('#v-' + v).classList.toggle('hidden', v !== S.view));
   render();
 }
 addEventListener('hashchange', route);
@@ -773,6 +776,7 @@ function render() {
   else if (S.view === 'upload') renderUpload();
   else if (S.view === 'production') renderProduction();
   else if (S.view === 'access') renderAccess();
+  else if (S.view === 'machine') renderMachineHistory();
   else renderHistory();
 }
 
@@ -925,7 +929,7 @@ function openMachine(m, mode, day) {
   const dayRows = mode === 'day' ? rows.filter(r => r.x === end) : [];
   showModal(`
     <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" data-close>Close</button></div>
-    <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}</div>
+    <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])} · <a href="#machine" onclick="S.mMac=${m};document.querySelectorAll('.modal-bg.pop').forEach(x=>x.remove())">Full machine history →</a></div>
     ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div></div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
     <h2>Day by day</h2>
     ${rows.map(r => `<div class="daybar"><span>${fmtDate(r.x).replace(/, \d{4}$/, '')}</span>${r.s ? zbar(r.s) : '<div class="zbar"></div>'}<span class="p" style="color:${r.s ? ZONE[machineStatus(r.s)] : 'var(--mut)'}">${r.s ? pct(r.s.green, r.s.takas) + '% good' : 'not checked'}</span></div>
@@ -1373,6 +1377,48 @@ async function saveProdDraft() {
   } catch (e) { b.disabled = false; b.textContent = 'Retry save'; toast(e.code === 'invalid_argument' ? `You don't have upload rights for ${FNAME()}` : 'Save failed: ' + (e.message || 'try again')); }
 }
 
+// ===================== MACHINE HISTORY =====================
+function renderMachineHistory() {
+  const el = $('#v-machine'); const all = checkedDates();
+  if (!all.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
+  if (S.mRange == null) S.mRange = 30; if (!S.mGrade) S.mGrade = 'all';
+  const ds = S.mRange ? all.slice(-S.mRange) : all;
+  const rollsIn = ds.flatMap(x => S.days[x].rolls);
+  const MS = machineStats(rollsIn);
+  if (!S.mMac || !MACS().includes(S.mMac)) S.mMac = MACS().find(m => MS[m]) || MACS()[0];
+  const m = S.mMac, s = MS[m];
+  const rows = ds.flatMap(x => S.days[x].rolls.filter(r => r.mac === m).map(r => ({ ...r, d: x, f: takaF100(r), g: gradeOf(takaF100(r)) })));
+  const shown = rows.filter(r => S.mGrade === 'all' || r.g === S.mGrade).sort((a, b) => b.d.localeCompare(a.d) || (+a.taka || 0) - (+b.taka || 0));
+  const perDay = ds.map(x => ({ x, s: machineStats(S.days[x].rolls)[m] || null })).filter(p => p.s);
+  const st = machineStatus(s);
+  const cutTot = rows.reduce((a, r) => a + (r.cutM || 0), 0);
+  el.innerHTML = `
+  <div class="pagehead"><div><div class="sub">${FNAME()} · Machine history</div><h1>Machine ${m}</h1></div>
+    <div class="seg">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], [0, 'All']].map(([v, l]) => `<button class="${S.mRange === v ? 'on' : ''}" onclick="S.mRange=${v};render()">${l}</button>`).join('')}</div></div>
+  <div class="macpick">${MACS().map(k => { const sk = machineStatus(MS[k]); return `<button class="${k === m ? 'on' : ''}" style="border-left-color:${sk ? ZONE[sk] : '#cbd5e1'}" onclick="S.mMac=${k};render()">M${k}</button>`; }).join('')}</div>
+  ${!s ? `<div class="card empty"><b>No rolls checked on machine ${m}</b>in ${S.mRange ? 'the last ' + S.mRange + ' report days' : 'any uploaded report'}.</div>` : `
+  <p class="headline"><b>${s.takas}</b> rolls checked on ${perDay.length} day${perDay.length > 1 ? 's' : ''} (${fmtDate(perDay[0].x).replace(/, \d{4}$/, '')} – ${fmtDate(perDay[perDay.length - 1].x).replace(/, \d{4}$/, '')}) · ${fmt(s.mtr)} m · machine is <b style="color:${ZONE[st]}">${STAT_WORD[st]}</b>${cutTot ? ` · ${fmt(cutTot)} m taarcut` : ''}</p>
+  ${big3(s)}
+  <div class="card" style="margin-bottom:14px"><h2>Day by day</h2>
+    ${perDay.map(p => `<div class="daybar"><span>${fmtDate(p.x).replace(/, \d{4}$/, '')}</span>${zbar(p.s)}<span class="p" style="color:${ZONE[machineStatus(p.s)]}">${pct(p.s.green, p.s.takas)}% good</span></div>
+      <div class="sub" style="margin:-4px 0 8px 130px">${p.s.takas} rolls · ${p.s.green} good · ${p.s.orange} watch · ${p.s.red} second · ${fmt(p.s.f100, 1)} faults per 100 m</div>`).join('')}</div>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">All rolls <span class="tag">${shown.length}</span></h2>
+      <div class="row"><div class="seg">${[['all', 'All'], ['red', 'Second'], ['orange', 'Watch'], ['green', 'Good']].map(([v, l]) => `<button class="${S.mGrade === v ? 'on' : ''}" onclick="S.mGrade='${v}';render()">${l}</button>`).join('')}</div>
+      <button class="btn sm" onclick="downloadMachineCsv()">Download Excel (CSV)</button></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Taka</th><th class="n">Metres</th><th class="n">Fault</th><th class="n">Silai</th><th class="n">Line</th><th class="n">${S.factory === 2 ? 'Stop' : 'TP'}</th><th class="n">Total</th><th class="n">Per 100 m</th><th>Grade</th><th class="n">Cut m</th><th>Remark</th>${S.factory === 2 ? '<th>Checker</th>' : ''}</tr></thead><tbody>
+    ${shown.length ? shown.map(r => `<tr class="tkrow" onclick="openTaka('${r.d}',${m},'${esc(r.taka)}')"><td>${fmtDate(r.d).replace(/, \d{4}$/, '')}</td><td><b>${esc(r.taka)}</b></td><td class="n">${fmt(r.mtr)}</td><td class="n">${r.fault || ''}</td><td class="n">${r.silai || ''}</td><td class="n">${r.line || ''}</td><td class="n">${r.tp || ''}</td><td class="n"><b>${r.total}</b></td><td class="n">${zPill(r.f, 1)}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[r.g] || ''}</td><td class="n">${r.cutM || ''}</td><td class="muted" style="white-space:normal;min-width:160px">${esc(r.remark)}</td>${S.factory === 2 ? `<td class="muted">${esc(r.checker)}</td>` : ''}</tr>`).join('') : '<tr><td colspan="13" class="muted">No rolls in this grade.</td></tr>'}
+    </tbody></table></div><div class="sub" style="margin-top:6px">Newest first. Click a roll for its full details.</div></div>`}`;
+  S.mRows = shown;
+}
+function downloadMachineCsv() {
+  const rows = S.mRows || []; const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['Factory', 'Machine', 'Date', 'Taka', 'Metres', 'Fault', 'Silai', 'Line', S.factory === 2 ? 'Stop' : 'TP', 'Total', 'Faults per 100 m', 'Grade', 'Cut m', 'Remark', 'Checker'];
+  const lines = [head.join(',')].concat(rows.map(r => [S.factory, r.mac, r.d, r.taka, r.mtr, r.fault, r.silai, r.line, r.tp, r.total, r.f == null ? '' : r.f.toFixed(2), gradeWord(r.g), r.cutM || '', r.remark, r.checker].map(q).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `F${S.factory}-M${S.mMac}-rolls.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
 // ===================== ACCESS (admin) =====================
 async function renderAccess() {
   const el = $('#v-access');
@@ -1386,13 +1432,20 @@ async function renderAccess() {
   const A = {}; (acc || []).forEach(a => A[a.user_id] = (a.factories || []).map(Number));
   const fs = Object.keys(FACTORIES).map(Number);
   el.innerHTML = `<div class="pagehead"><div><div class="sub">Admin only</div><h1>Who can upload</h1></div></div>
-  <div class="banner">Everyone with a login can <b>view</b> both factories. Tick a factory to let that person <b>upload checking reports and production</b> for it. Admins can upload everywhere and are the only ones who can delete a day. Users and their logins are still created in the yarn tracker (Masters → Users).</div>
-  <div class="card"><div class="tbl-wrap"><table class="acc"><thead><tr><th>Person</th><th>Yarn tracker role</th><th>Can upload for</th></tr></thead><tbody>
-  ${(users || []).map(u => `<tr><td><b>${esc(u.name || '—')}</b><div class="sub">${esc(u.email || '')}</div></td><td>${esc({ admin: 'Admin', entry: 'Data entry', viewer: 'View only', blocked: 'Blocked' }[u.role] || u.role || '')}</td>
+  <div class="banner">Everyone with a login can <b>view</b> both factories. Tick a factory to let that person <b>upload checking reports and production</b> for it. Anyone who is <b>Admin in the yarn tracker</b> is also admin here (upload + delete, both factories) — make them View only in the yarn tracker if that's not wanted. New logins are created in Supabase (Authentication → Users → Add user).</div>
+  <div class="card"><div class="tbl-wrap"><table class="acc"><thead><tr><th>Person</th><th>Status in quality tracker</th><th>Can upload for (tick to allow)</th></tr></thead><tbody>
+  ${(users || []).map(u => `<tr><td><b>${esc(u.name || '—')}</b><div class="sub">${esc(u.email || '')}</div></td><td id="qs-${u.id}">${qtStatus(u, A[u.id] || [])}</td>
     <td>${u.role === 'admin' ? '<span class="pill good">All factories (admin)</span>' : u.role === 'blocked' ? '<span class="pill muted">Blocked — no access</span>'
       : fs.map(f => `<label><input type="checkbox" ${(A[u.id] || []).includes(f) ? 'checked' : ''} onchange="setAccess('${u.id}',${f},this)">${FACTORIES[f].name}</label>`).join('')}</td></tr>`).join('')}
   </tbody></table></div></div>`;
-  S.accessCache = A;
+  S.accessCache = A; S.accessUsers = users || [];
+}
+function qtStatus(u, fs) {
+  const yarn = `<div class="sub">Yarn tracker: ${esc({ admin: 'Admin', entry: 'Data entry', viewer: 'View only', blocked: 'Blocked' }[u.role] || u.role || '—')}</div>`;
+  if (u.role === 'admin') return `<span class="pill good">Admin · upload + delete, all factories</span>${yarn}`;
+  if (u.role === 'blocked') return `<span class="pill muted">No access</span>${yarn}`;
+  if (fs.length) return `<span class="pill warning">Uploads ${fs.map(f => FACTORIES[f].name).join(' + ')}</span><div class="sub">views both factories</div>${yarn}`;
+  return `<span class="pill muted">View only</span><div class="sub">both factories</div>${yarn}`;
 }
 async function setAccess(uid, f, box) {
   const cur = new Set(S.accessCache[uid] || []); box.checked ? cur.add(f) : cur.delete(f);
@@ -1401,7 +1454,7 @@ async function setAccess(uid, f, box) {
   const { error } = await SB.from('quality_access').upsert({ user_id: uid, factories, updated_at: new Date().toISOString() });
   box.disabled = false;
   if (error) { box.checked = !box.checked; toast('Could not save: ' + error.message); return; }
-  S.accessCache[uid] = factories; toast('Saved');
+  S.accessCache[uid] = factories; const u = (S.accessUsers || []).find(x => x.id === uid); if (u) $('#qs-' + uid).innerHTML = qtStatus(u, factories); toast('Saved');
 }
 
 // ===================== HISTORY =====================
