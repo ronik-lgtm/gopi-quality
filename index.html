@@ -754,7 +754,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 
 // ===================== router =====================
 function renderNav() {
-  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history'], ['reports', 'Reports']];
+  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history']];
   if (canW()) items.push(['upload', 'Upload checking'], ['production', 'Production']);
   items.push(['history', 'History']);
   if (isAdmin) items.push(['access', 'Access']);
@@ -778,7 +778,7 @@ function render() {
   else if (S.view === 'production') renderProduction();
   else if (S.view === 'access') renderAccess();
   else if (S.view === 'machine') renderMachineHistory();
-  else if (S.view === 'reports') renderReports();
+  else if (S.view === 'reports') { location.hash = 'machine'; return; }
   else renderHistory();
 }
 
@@ -935,7 +935,7 @@ function openMachine(m, mode, day) {
   const dayRows = mode === 'day' ? rows.filter(r => r.x === end) : [];
   showModal(`
     <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" data-close>Close</button></div>
-    <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])} · <a href="#machine" onclick="S.mMac=${m};document.querySelectorAll('.modal-bg.pop').forEach(x=>x.remove())">Full machine history →</a></div>
+    <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])} · <a href="#machine" onclick="S.mMac=${m};document.querySelectorAll('.modal-bg.pop').forEach(x=>x.remove())">Download PDF report →</a></div>
     ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div></div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
     <h2>Day by day</h2>
     ${rows.map(r => `<div class="daybar"><span>${fmtDate(r.x).replace(/, \d{4}$/, '')}</span>${r.s ? zbar(r.s) : '<div class="zbar"></div>'}<span class="p" style="color:${r.s ? ZONE[machineStatus(r.s)] : 'var(--mut)'}">${r.s ? pct(r.s.green, r.s.takas) + '% good' : 'not checked'}</span></div>
@@ -1385,37 +1385,31 @@ async function saveProdDraft() {
 
 // ===================== MACHINE HISTORY =====================
 function renderMachineHistory() {
-  const el = $('#v-machine'); const all = checkedDates();
-  if (!all.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
-  if (S.mRange == null) S.mRange = 30; if (!S.mGrade) S.mGrade = 'all';
-  const ds = S.mRange ? all.slice(-S.mRange) : all;
-  const rollsIn = ds.flatMap(x => S.days[x].rolls);
-  const MS = machineStats(rollsIn);
-  if (!S.mMac || !MACS().includes(S.mMac)) S.mMac = MACS().find(m => MS[m]) || MACS()[0];
-  const m = S.mMac, s = MS[m];
-  const rows = ds.flatMap(x => S.days[x].rolls.filter(r => r.mac === m).map(r => ({ ...r, d: x, f: takaF100(r), g: gradeOf(takaF100(r)) })));
-  const shown = rows.filter(r => S.mGrade === 'all' || r.g === S.mGrade).sort((a, b) => b.d.localeCompare(a.d) || (+a.taka || 0) - (+b.taka || 0));
-  const perDay = ds.map(x => ({ x, s: machineStats(S.days[x].rolls)[m] || null })).filter(p => p.s);
-  const st = machineStatus(s);
-  const cutTot = rows.reduce((a, r) => a + (r.cutM || 0), 0);
+  const el = $('#v-machine'); const ds = checkedDates();
+  if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
+  if (!S.rep) { const to = ds[ds.length - 1]; S.rep = { mac: S.mMac || MACS()[0], to, from: ds.slice(-7)[0] }; }
+  if (S.mMac) { S.rep.mac = S.mMac; S.mMac = null; }
+  const R = S.rep;
+  const lab = 'display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:#334155';
+  const bad = R.from > R.to;
+  const D = bad ? null : reportData();
   el.innerHTML = `
-  <div class="pagehead"><div><div class="sub">${FNAME()} · Machine history</div><h1>Machine ${m}</h1></div>
-    <div class="seg">${[[7, '7 days'], [14, '14 days'], [30, '30 days'], [0, 'All']].map(([v, l]) => `<button class="${S.mRange === v ? 'on' : ''}" onclick="S.mRange=${v};render()">${l}</button>`).join('')}</div></div>
-  <div class="macpick">${MACS().map(k => { const sk = machineStatus(MS[k]); return `<button class="${k === m ? 'on' : ''}" style="border-left-color:${sk ? ZONE[sk] : '#cbd5e1'}" onclick="S.mMac=${k};render()">M${k}</button>`; }).join('')}</div>
-  ${!s ? `<div class="card empty"><b>No rolls checked on machine ${m}</b>in ${S.mRange ? 'the last ' + S.mRange + ' report days' : 'any uploaded report'}.</div>` : `
-  <p class="headline"><b>${s.takas}</b> rolls checked on ${perDay.length} day${perDay.length > 1 ? 's' : ''} (${fmtDate(perDay[0].x).replace(/, \d{4}$/, '')} – ${fmtDate(perDay[perDay.length - 1].x).replace(/, \d{4}$/, '')}) · ${fmt(s.mtr)} m · machine is <b style="color:${ZONE[st]}">${STAT_WORD[st]}</b>${cutTot ? ` · ${fmt(cutTot)} m taarcut` : ''}</p>
-  ${big3(s)}
-  <div class="card" style="margin-bottom:14px"><h2>Day by day</h2>
-    ${perDay.map(p => `<div class="daybar"><span>${fmtDate(p.x).replace(/, \d{4}$/, '')}</span>${zbar(p.s)}<span class="p" style="color:${ZONE[machineStatus(p.s)]}">${pct(p.s.green, p.s.takas)}% good</span></div>
-      <div class="sub" style="margin:-4px 0 8px 130px">${p.s.takas} rolls · ${p.s.green} good · ${p.s.orange} watch · ${p.s.red} second · ${fmt(p.s.f100, 1)} faults per 100 m</div>`).join('')}</div>
-  <div class="card">
-    <div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 style="margin:0">All rolls <span class="tag">${shown.length}</span></h2>
-      <div class="row"><div class="seg">${[['all', 'All'], ['red', 'Second'], ['orange', 'Watch'], ['green', 'Good']].map(([v, l]) => `<button class="${S.mGrade === v ? 'on' : ''}" onclick="S.mGrade='${v}';render()">${l}</button>`).join('')}</div>
-      <button class="btn sm" onclick="downloadMachineCsv()">Download Excel (CSV)</button></div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Taka</th><th class="n">Metres</th><th class="n">Fault</th><th class="n">Silai</th><th class="n">Line</th><th class="n">${S.factory === 2 ? 'Stop' : 'TP'}</th><th class="n">Total</th><th class="n">Per 100 m</th><th>Grade</th><th class="n">Cut m</th><th>Remark</th>${S.factory === 2 ? '<th>Checker</th>' : ''}</tr></thead><tbody>
-    ${shown.length ? shown.map(r => `<tr class="tkrow" onclick="openTaka('${r.d}',${m},'${esc(r.taka)}')"><td>${fmtDate(r.d).replace(/, \d{4}$/, '')}</td><td><b>${esc(r.taka)}</b></td><td class="n">${fmt(r.mtr)}</td><td class="n">${r.fault || ''}</td><td class="n">${r.silai || ''}</td><td class="n">${r.line || ''}</td><td class="n">${r.tp || ''}</td><td class="n"><b>${r.total}</b></td><td class="n">${zPill(r.f, 1)}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[r.g] || ''}</td><td class="n">${r.cutM || ''}</td><td class="muted" style="white-space:normal;min-width:160px">${esc(r.remark)}</td>${S.factory === 2 ? `<td class="muted">${esc(r.checker)}</td>` : ''}</tr>`).join('') : '<tr><td colspan="13" class="muted">No rolls in this grade.</td></tr>'}
-    </tbody></table></div><div class="sub" style="margin-top:6px">Newest first. Click a roll for its full details.</div></div>`}`;
-  S.mRows = shown;
+  <div style="max-width:460px;margin:30px auto">
+    <div class="card" style="padding:22px">
+      <h1 style="margin:0 0 4px">Machine report</h1>
+      <div class="sub" style="margin-bottom:18px">${FNAME()} · choose a machine and dates, then download the PDF</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <label style="${lab}">Machine
+          <select onchange="S.rep.mac=this.value;renderMachineHistory()">${MACS().map(m => `<option value="${m}" ${String(R.mac) === String(m) ? 'selected' : ''}>Machine ${m}</option>`).join('')}<option value="all" ${R.mac === 'all' ? 'selected' : ''}>All machines</option></select></label>
+        <label style="${lab}">Start date<input type="date" value="${R.from}" onchange="S.rep.from=this.value;renderMachineHistory()"></label>
+        <label style="${lab}">End date<input type="date" value="${R.to}" onchange="S.rep.to=this.value;renderMachineHistory()"></label>
+      </div>
+      ${bad ? `<div class="banner err" style="margin-top:14px">Start date is after end date.</div>`
+        : !D.checked ? `<div class="banner warn" style="margin-top:14px">No rolls checked on ${R.mac === 'all' ? 'any machine' : 'machine ' + R.mac} between these dates.</div>`
+        : `<div class="sub" style="margin-top:14px">${D.checked} rolls checked${D.produced ? ` out of ${D.produced} produced` : ''} in this period.</div>`}
+      <button class="btn primary" id="repPdf" style="width:100%;margin-top:16px;padding:12px" ${bad || !D.checked ? 'disabled' : ''} onclick="downloadReportPdf()">Download PDF</button>
+    </div>
+  </div>`;
 }
 function downloadMachineCsv() {
   const rows = S.mRows || []; const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
