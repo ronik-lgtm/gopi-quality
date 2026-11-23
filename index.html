@@ -150,6 +150,10 @@ tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
 .daybar .p{text-align:right;font-weight:700}
 .modal.wide{max-width:600px;max-height:90vh;overflow:auto}
 .toggle{margin:18px 0 10px}
+.quick{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.quick button{font:inherit;font-size:13px;font-weight:600;padding:9px 4px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:var(--ink);cursor:pointer}
+.quick button:hover{background:#f8fafc}
+.quick button.on{background:var(--accbg);border-color:var(--acc);color:var(--acc)}
 .macpick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
 .macpick button{font:inherit;font-weight:700;font-size:13px;min-width:52px;padding:7px 10px;border-radius:8px;border:1px solid var(--line);border-left-width:4px;background:#fff;cursor:pointer;color:var(--ink)}
 .macpick button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -754,7 +758,7 @@ document.addEventListener('mousemove', e => { const t = e.target.closest('[data-
 
 // ===================== router =====================
 function renderNav() {
-  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history'], ['reports', 'Reports']];
+  const items = [['daily', 'Daily report'], ['trends', 'Trends'], ['machine', 'Machine history']];
   if (canW()) items.push(['upload', 'Upload checking'], ['production', 'Production']);
   items.push(['history', 'History']);
   if (isAdmin) items.push(['access', 'Access']);
@@ -778,7 +782,7 @@ function render() {
   else if (S.view === 'production') renderProduction();
   else if (S.view === 'access') renderAccess();
   else if (S.view === 'machine') renderMachineHistory();
-  else if (S.view === 'reports') renderReports();
+  else if (S.view === 'reports') { location.hash = 'machine'; return; }
   else renderHistory();
 }
 
@@ -1387,7 +1391,7 @@ async function saveProdDraft() {
 function renderMachineHistory() {
   const el = $('#v-machine'); const ds = checkedDates();
   if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
-  if (!S.rep) { const to = ds[ds.length - 1]; S.rep = { mac: S.mMac || MACS()[0], to, from: ds.slice(-7)[0] }; }
+  if (!S.rep) { S.rep = { mac: S.mMac || MACS()[0] }; repQuickSilent(7); }
   if (S.mMac) { S.rep.mac = S.mMac; S.mMac = null; }
   const R = S.rep;
   const lab = 'display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:#334155';
@@ -1401,9 +1405,10 @@ function renderMachineHistory() {
       <div style="display:flex;flex-direction:column;gap:14px">
         <label style="${lab}">Machine
           <select onchange="S.rep.mac=this.value;renderMachineHistory()">${MACS().map(m => `<option value="${m}" ${String(R.mac) === String(m) ? 'selected' : ''}>Machine ${m}</option>`).join('')}<option value="all" ${R.mac === 'all' ? 'selected' : ''}>All machines</option></select></label>
-        <div class="row" style="gap:6px">${[[1, 'Last day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="btn sm" onclick="repQuick(${n})">${l}</button>`).join('')}</div>
-        <label style="${lab}">Start date<input type="date" value="${R.from}" onchange="S.rep.from=this.value;renderMachineHistory()"></label>
-        <label style="${lab}">End date<input type="date" value="${R.to}" onchange="S.rep.to=this.value;renderMachineHistory()"></label>
+        <div style="${lab}">Period
+          <div class="quick">${[[1, 'Last day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="${quickOn(n) ? 'on' : ''}" onclick="repQuick(${n})">${l}</button>`).join('')}</div></div>
+        <label style="${lab}">Start date<input type="date" value="${R.from}" onchange="S.rep.from=this.value;S.rep.quick=null;renderMachineHistory()"></label>
+        <label style="${lab}">End date<input type="date" value="${R.to}" onchange="S.rep.to=this.value;S.rep.quick=null;renderMachineHistory()"></label>
       </div>
       ${bad ? `<div class="banner err" style="margin-top:14px">Start date is after end date.</div>`
         : !D.checked ? `<div class="banner warn" style="margin-top:14px">No rolls checked on ${R.mac === 'all' ? 'any machine' : 'machine ' + R.mac} between these dates.</div>`
@@ -1477,7 +1482,10 @@ function renderReports() {
     ${S.factory === 2 ? `<div class="sub" style="margin-top:8px">As in your DIFF sheet, each checking date is compared with the previous day's production.</div>` : ''}`}
   </div></div>`;
 }
-function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const from = cd.slice(-n)[0]; S.rep.from = from; S.rep.to = to; render(); }
+function repQuickSilent(n) { const cd = checkedDates(); const to = cd[cd.length - 1]; const d = new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (n - 1)); S.rep.from = d.toISOString().slice(0, 10); S.rep.to = to; S.rep.quick = n; }
+function quickOn(n) { return !!S.rep && S.rep.quick === n; }
+// calendar days ending on the latest uploaded report: Last day = that day, Last 3 days = that day and the 2 before it, etc.
+function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const d = new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (n - 1)); S.rep.from = d.toISOString().slice(0, 10); S.rep.to = to; S.rep.quick = n; render(); }
 function repFileName(ext) { const R = S.rep; return `F${S.factory}-${R.mac === 'all' ? 'all-machines' : 'M' + R.mac}-${R.from}_to_${R.to}.${ext}`; }
 function saveBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 function reportColumns() {
