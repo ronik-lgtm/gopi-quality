@@ -797,12 +797,12 @@ const STAT_WORD = { green: 'Good', orange: 'Watch', red: 'Problem' };
 const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 const zbar = s => { const n = (s.green + s.orange + s.red) || 1; return `<div class="zbar">${['green', 'orange', 'red'].map(k => s[k] ? `<i style="flex:${s[k] / n};background:${ZONE[k]}"></i>` : '').join('')}</div>`; };
 const simpleLegend = `<div class="legend" style="margin:0 0 10px">${'<span><i style="background:' + ZONE.green + '"></i>Good taka · up to ' + GRADE.greenMax + ' faults per 100 m</span><span><i style="background:' + ZONE.orange + '"></i>Watch · ' + GRADE.greenMax + '–' + GRADE.redMin + '</span><span><i style="background:' + ZONE.red + '"></i>Second quality · ' + GRADE.redMin + '+</span>'}</div>`;
-function mcard(m, s, extra = '', onclick = '') {
+function mcard(m, s, extra = '', onclick = '', prod = null) {
   const st = machineStatus(s);
-  if (!st) return `<div class="mcard none"><div class="mt"><b>M${m}</b><span class="st">—</span></div><div class="ms">Not checked</div>${extra}</div>`;
+  if (!st) return `<div class="mcard none"><div class="mt"><b>M${m}</b><span class="st">—</span></div><div class="ms">${prod ? `0 of ${prod} checked` : 'Not checked'}</div>${extra}</div>`;
   return `<button class="mcard ${st}" onclick="${onclick}"><div class="mt"><b>M${m}</b><span class="st">${STAT_WORD[st]}</span></div>
     <div class="pc">${pct(s.green, s.takas)}%<small>good</small></div>${zbar(s)}
-    <div class="ms">${s.takas} taka${s.takas === 1 ? '' : 's'}${s.red ? ` · <b style="color:var(--bad)">${s.red} second</b>` : ''}</div>${extra}</button>`;
+    <div class="ms">${prod != null ? `${s.takas} of ${prod} checked` : `${s.takas} taka${s.takas === 1 ? '' : 's'}`}${s.red ? ` · <b style="color:var(--bad)">${s.red} second</b>` : ''}</div>${extra}</button>`;
 }
 function big3(t) {
   return `<div class="big3">
@@ -829,7 +829,7 @@ function renderDaily() {
   <p class="headline"><b>${t.takas}</b> takas checked${hasProd ? ` out of <b>${prodTot}</b> produced${d.prodDate && d.prodDate !== S.selDate ? ` (production of ${fmtDate(d.prodDate).replace(/, \d{4}$/, '')})` : ''}` : ''} — <b style="color:${t.red ? ZONE.red : 'var(--ok)'}">${t.red ? t.red + ' second quality' : 'no second quality'}</b>.${hasProd && prodTot - t.takas > 0 ? ` ${prodTot - t.takas} takas still waiting to be checked.` : ''}</p>
   ${big3(t)}
   <div class="grid two" style="align-items:start">
-    <div class="card"><h2>Machines today</h2>${simpleLegend}<div class="wall">${MACS().map(m => mcard(m, ms[m], '', `openMachine(${m},'day')`)).join('')}</div></div>
+    <div class="card"><h2>Machines today</h2>${simpleLegend}<div class="wall">${MACS().map(m => mcard(m, ms[m], '', `openMachine(${m},'day')`, hasProd ? (+prod[m] || 0) : null)).join('')}</div></div>
     <div class="card"><h2>Needs attention</h2><div class="attn">${att.length ? att.join('') : '<div><span style="color:var(--ok)">All machines good today.</span></div>'}</div></div>
   </div>
   <div class="toggle"><button class="btn" onclick="S.showDetail=!S.showDetail;render()">${S.showDetail ? 'Hide detailed numbers ▴' : 'Show detailed numbers ▾'}</button></div>
