@@ -150,6 +150,9 @@ tfoot td{font-weight:700;background:#f8fafc;position:sticky;bottom:0}
 .daybar .p{text-align:right;font-weight:700}
 .modal.wide{max-width:600px;max-height:90vh;overflow:auto}
 .toggle{margin:18px 0 10px}
+.mpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px}
+.mpick button{font:inherit;font-size:13px;font-weight:700;padding:8px 0;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:var(--ink);cursor:pointer}
+.mpick button.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .quick{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .quick button{font:inherit;font-size:13px;font-weight:600;padding:9px 4px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:var(--ink);cursor:pointer}
 .quick button:hover{background:#f8fafc}
@@ -299,9 +302,10 @@ function parsePdfItems(items) {
 }
 
 function finalizeRow(r, warnings) {
-  const sum = (r.fault || 0) + (r.silai || 0) + (r.line || 0);
-  if (r.total == null) r.total = sum;
-  else if (Math.abs(r.total - sum) > 0.01) warnings.push(`M${r.mac} taka ${r.taka}: total fault ${r.total} ≠ fault+silai+line ${sum}`);
+  const base = (r.fault || 0) + (r.silai || 0), withLine = base + (r.line || 0);
+  // TOTAL is taken from the report itself. Factory 2's TOTAL leaves stop lines out; accept either convention, flag anything else.
+  if (r.total == null) r.total = base;
+  else if (Math.abs(r.total - base) > 0.01 && Math.abs(r.total - withLine) > 0.01) warnings.push(`M${r.mac} taka ${r.taka}: TOTAL ${r.total} ≠ fault + silai ${base}${r.line ? ` (or ${withLine} with stop lines)` : ''}`);
   Object.assign(r, parseRemark(r.remark));
 }
 
@@ -345,7 +349,7 @@ function parseSheetRows(aoa) {
         else if (c.includes('TAKA')) map.taka = j;
         else if (c === 'TP') map.tp = j;
         else if (c === 'SILAI') map.silai = j;
-        else if (c.includes('LINE')) map.line = j;
+        else if (c.includes('LINE') || c === 'STOP' || c.startsWith('STOP')) map.line = j;
         else if (c.includes('TOTAL')) map.total = j;
         else if (c.includes('FAULT') && map.fault == null) map.fault = j;
         else if (c.includes('FAULT')) map.total = j;
@@ -485,9 +489,10 @@ const FACTORIES = {
   1: { name: 'Factory 1', machines: F1_MACHINES, pdf: 'f1' },
   2: { name: 'Factory 2', machines: [6, 7, 8, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26], pdf: 'header' }
 };
-// Google-Sheets style checking report: header row DATE MAC TAKA FAULT SILAI STOP TOTAL METER cut REMARK CHECKER,
+// Google-Sheets style checking report: header row DATE MAC TAKA FAULT SILAI STOP TOTAL METER cut REMARK CHECKER.
+// STOP = stop lines (same thing as Factory 1's STOP LINE column), NOT TP. Factory 2's TOTAL = FAULT + SILAI (stop lines not counted).
 // values left-aligned under each header word. Header repeats on every page.
-const HDR_ALIAS = [[/^DATE$/, 'date'], [/^MAC/, 'mac'], [/^TAKA/, 'taka'], [/^FAULT$/, 'fault'], [/^SILAI$/, 'silai'], [/^(STOP|TP)$/, 'tp'], [/^LINE$/, 'line'],
+const HDR_ALIAS = [[/^DATE$/, 'date'], [/^MAC/, 'mac'], [/^TAKA/, 'taka'], [/^FAULT$/, 'fault'], [/^SILAI$/, 'silai'], [/^TP$/, 'tp'], [/^(STOP|LINE|STOP ?LINE)$/, 'line'],
   [/^TOTAL$/, 'total'], [/^(METER|METRE|MTR)S?$/, 'mtr'], [/^CUTS?$/, 'cut'], [/^REMARKS?$/, 'remark'], [/^CHECKER$/, 'checker']];
 function parseHeaderPdfItems(items) {
   const toks = items.filter(t => t.str && t.str.trim()).flatMap(it => {
@@ -583,8 +588,10 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.style.displa
 
 // compact storage: rolls as arrays [mac, taka, tp/stop, fault, silai, line, total, mtr, remark, cut metres (F2), checker (F2)]
 const packRoll = r => { const a = [r.mac, r.taka, r.tp, r.fault, r.silai, r.line, r.total, r.mtr, r.remark]; if (r.cutCol != null || r.checker) a.push(r.cutCol ?? null, r.checker || ''); return a; };
-function unpackRoll(a, date) {
+function unpackRoll(a, date, f) {
   const r = { date, mac: a[0], taka: a[1], tp: a[2], fault: a[3], silai: a[4], line: a[5], total: a[6], mtr: a[7], remark: a[8] || '' };
+  // Factory 2 reports have no TP column; their STOP column is stop lines. Uploads made before 25 Nov stored STOP in the TP slot — read it as stop lines.
+  if (+f === 2) { r.line = (+a[5] || 0) || (+a[2] || 0); r.tp = 0; }
   Object.assign(r, parseRemark(r.remark));
   if (a[9] != null && a[9] !== '') { r.cutCol = +a[9]; if (r.cutCol > 0) { r.cutM = r.cutCol; r.cuts = Math.max(r.cuts, 1); } }
   r.checker = a[10] || '';
@@ -594,9 +601,13 @@ function unpackRoll(a, date) {
 S.data = { 1: {}, 2: {} };
 function ingestDoc(f, id, d) {
   if (!d || !Array.isArray(d.rolls)) return;
-  (S.data[f] ||= {})[id] = { date: id, rolls: d.rolls.map(a => unpackRoll(a, id)), production: d.production || {}, prodDate: d.prodDate || null, source: d.source || '', savedAt: d.savedAt || '' };
+  (S.data[f] ||= {})[id] = { date: id, rolls: d.rolls.map(a => unpackRoll(a, id, f)), production: d.production || {}, prodDate: d.prodDate || null, source: d.source || '', savedAt: d.savedAt || '', savedBy: d.savedBy || null };
 }
 const MACS = () => FACTORIES[S.factory].machines;
+const HAS_TP = () => S.factory !== 2;                       // only Factory 1 reports have a TP column
+const SHOW_STOP = s => S.factory === 2 || !!(s && s.line);   // stop lines matter in Factory 2
+const stopTxt = s => `${fmt(s.line)} stop line${s.line === 1 ? '' : 's'}${s.mtr ? ` (${fmt(s.line / s.mtr * 100, 1)} per 100 m)` : ''}`;
+const lineInTotal = r => !!r.line && Math.abs(r.total - (r.fault + r.silai + r.line)) < 0.01 && Math.abs(r.total - (r.fault + r.silai)) > 0.01;
 const FNAME = () => FACTORIES[S.factory].name;
 function setFactory(f, quiet) {
   S.factory = f; S.days = S.data[f] || (S.data[f] = {});
@@ -651,13 +662,14 @@ async function loadAll() {
   try {
     const out = [];
     for (let from = 0; ; from += 500) {
-      const { data, error } = await SB.from('quality_days').select('factory,date,prod_date,rolls,production,source,saved_at').order('date').range(from, from + 499);
+      const { data, error } = await SB.from('quality_days').select('factory,date,prod_date,rolls,production,source,saved_at,saved_by').order('date').range(from, from + 499);
       if (error) throw sbErr(error);
       out.push(...data); if (data.length < 500) break;
     }
     for (const f in S.data) for (const k in S.data[f]) delete S.data[f][k];
-    for (const r of out) ingestDoc(r.factory, r.date, { rolls: r.rolls, production: r.production, prodDate: r.prod_date, source: r.source, savedAt: r.saved_at });
-    S.days = S.data[S.factory];
+    for (const r of out) ingestDoc(r.factory, r.date, { rolls: r.rolls, production: r.production, prodDate: r.prod_date, source: r.source, savedAt: r.saved_at, savedBy: r.saved_by });
+    S.days = S.data[S.factory]; S.loadedAt = Date.now();
+    if (isAdmin && !S.names) { const { data: ps } = await SB.from('profiles').select('id,name,email'); S.names = {}; (ps || []).forEach(p => S.names[p.id] = p.name || p.email); }
     S.loaded = true; setConn(null);
   } catch (e) { S.loaded = true; setConn('err', 'Could not read saved data: ' + e.message + (/prod_date/.test(e.message) ? ' — run the Factory 2 SQL update in Supabase first.' : '')); }
   clearTimeout(timer); afterLoad();
@@ -676,7 +688,7 @@ function setConn(kind, msg) { const c = $('#conn'); if (!kind) { c.classList.add
 function demoSave(mut) { try { const raw = JSON.parse(localStorage.getItem('gk-qt-demo') || '{}'); mut(raw); localStorage.setItem('gk-qt-demo', JSON.stringify(raw)); } catch (e) {} }
 async function saveDay(date, rolls, production, source) {
   const f = S.factory, prev = S.days[date];
-  const body = { date, factory: f, rolls: rolls.map(packRoll), production, prodDate: prev ? prev.prodDate : null, source, savedAt: new Date().toISOString() };
+  const body = { date, factory: f, rolls: rolls.map(packRoll), production, prodDate: prev ? prev.prodDate : null, source, savedAt: new Date().toISOString(), savedBy: SESSION ? SESSION.user.id : null };
   if (demoMode) { ingestDoc(f, date, body); demoSave(raw => raw[DKEY(f, date)] = body); afterLoad(); return; }
   const { error } = await SB.from('quality_days').upsert({ factory: f, date, rolls: body.rolls, production, source, saved_at: body.savedAt, saved_by: SESSION.user.id });
   if (error) throw sbErr(error);
@@ -697,6 +709,11 @@ async function saveProductionDay(date, production, source, prodDate) {
   const body = { date, factory: f, rolls: [], production, prodDate: prodDate || null, source: source || '', savedAt: new Date().toISOString() };
   if (demoMode) { ingestDoc(f, date, body); demoSave(raw => raw[DKEY(f, date)] = body); afterLoad(); return; }
   const { error } = await SB.from('quality_days').insert({ factory: f, date, prod_date: prodDate || null, rolls: [], production, source: body.source, saved_at: body.savedAt, saved_by: SESSION.user.id });
+  if (error && (error.code === '23505' || /duplicate/i.test(error.message))) { // someone saved this date meanwhile: update production only, keep their checking data
+    const { data: cur } = await SB.from('quality_days').select('rolls,production,prod_date,source,saved_at,saved_by').eq('factory', f).eq('date', date).maybeSingle();
+    if (cur) ingestDoc(f, date, { rolls: cur.rolls, production: cur.production, prodDate: cur.prod_date, source: cur.source, savedAt: cur.saved_at, savedBy: cur.saved_by });
+    return saveProduction(date, production, prodDate);
+  }
   if (error) throw sbErr(error);
   ingestDoc(f, date, body);
 }
@@ -913,9 +930,9 @@ function openTaka(date, m, taka) {
       <div><div class="l">Metres</div><div class="v">${fmt(r.mtr)}</div></div>
       <div><div class="l">Total faults</div><div class="v">${r.total}</div></div>
       <div><div class="l">Taarcut</div><div class="v">${r.cuts ? `${r.cuts}<small class="muted" style="font-size:12px"> cuts · ${fmt(r.cutM)} m</small>` : '–'}</div></div>
-      <div><div class="l">Loding</div><div class="v">${r.loding ? 'Yes' : '–'}</div></div>
+      <div><div class="l">${S.factory === 2 ? 'Stop lines' : 'Loding'}</div><div class="v">${S.factory === 2 ? (r.line || 0) : r.loding ? 'Yes' : '–'}</div></div>
     </div>
-    <div class="sub" style="margin:-4px 0 10px">Faults split: knitting fault ${r.fault} · silai ${r.silai} · line ${r.line}${r.tp ? ` · TP ${r.tp}` : ''}</div>
+    <div class="sub" style="margin:-4px 0 10px">Total ${r.total} = knitting fault ${r.fault} + silai ${r.silai}${lineInTotal(r) ? ` + stop line ${r.line}` : ''}${r.line && !lineInTotal(r) ? ` · <b>stop lines ${r.line}</b> (recorded separately, not counted in total — as in the report)` : ''}${HAS_TP() && r.tp ? ` · TP ${r.tp}` : ''}</div>
     ${r.remark ? `<div class="banner" style="margin-bottom:12px"><b>Checker's remark:</b> ${esc(r.remark)}</div>` : ''}
     <h2>What this means</h2>
     <div class="attn" style="margin-bottom:14px">${notes.map(n => `<div><span>${n}</span></div>`).join('')}</div>
@@ -940,12 +957,12 @@ function openMachine(m, mode, day) {
   showModal(`
     <div class="row" style="justify-content:space-between;margin-bottom:4px"><h1 style="margin:0">Machine ${m}</h1><button class="btn sm" data-close>Close</button></div>
     <div class="sub" style="margin-bottom:12px">Last ${ds.length} day${ds.length > 1 ? 's' : ''} · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])} · <a href="#machine" onclick="S.mMac=${m};document.querySelectorAll('.modal-bg.pop').forEach(x=>x.remove())">Download PDF report →</a></div>
-    ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div></div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
+    ${allS ? `<div class="mcard ${st}" style="cursor:default;margin-bottom:14px"><div class="mt"><span class="pc">${pct(allS.green, allS.takas)}%<small>good takas</small></span><span class="st">${STAT_WORD[st]}</span></div>${zbar(allS)}<div class="ms">${allS.takas} takas · ${allS.green} good · ${allS.orange} watch · ${allS.red} second quality ${trend ? ' · ' + trend : ''}</div>${SHOW_STOP(allS) ? `<div class="ms" style="color:var(--ink);font-weight:600">Stop lines: ${stopTxt(allS)}</div>` : ''}</div>` : '<div class="banner">No takas checked for this machine in this period.</div>'}
     <h2>Day by day</h2>
     ${rows.map(r => `<div class="daybar"><span>${fmtDate(r.x).replace(/, \d{4}$/, '')}</span>${r.s ? zbar(r.s) : '<div class="zbar"></div>'}<span class="p" style="color:${r.s ? ZONE[machineStatus(r.s)] : 'var(--mut)'}">${r.s ? pct(r.s.green, r.s.takas) + '% good' : 'not checked'}</span></div>
-      ${r.s ? `<div class="sub" style="margin:-4px 0 8px 130px">${r.s.takas} takas · ${r.s.green} good · ${r.s.orange} watch · ${r.s.red} second</div>` : ''}`).join('')}
+      ${r.s ? `<div class="sub" style="margin:-4px 0 8px 130px">${r.s.takas} takas · ${r.s.green} good · ${r.s.orange} watch · ${r.s.red} second${SHOW_STOP(r.s) ? ` · <b style="color:var(--ink)">${fmt(r.s.line)} stop lines</b>` : ''}</div>` : ''}`).join('')}
     ${seconds.length ? `<h2 style="margin-top:14px">Second-quality takas</h2><div class="attn">${seconds.map(x => `<div class="go" onclick="openTaka('${x.d}',${m},'${esc(x.taka)}')"><b style="color:var(--bad)">#${esc(x.taka)}</b><span>${fmtDate(x.d).replace(/, \d{4}$/, '')} · ${x.total} faults in ${x.mtr} m${x.remark ? ' · ' + esc(x.remark) : ''}</span></div>`).join('')}</div>` : ''}
-    ${dayRows.length && dayRows[0].rolls.length ? `<h2 style="margin-top:14px">All takas on ${fmtDate(end).replace(/, \d{4}$/, '')} <span class="sub" style="font-weight:500">· click a taka for details</span></h2><div class="tbl-wrap" style="max-height:260px"><table><thead><tr><th>Taka</th><th class="n">Metres</th><th class="n">Faults</th><th>Grade</th><th>Remark</th></tr></thead><tbody>${dayRows[0].rolls.map(x => { const g = gradeOf(takaF100(x)); return `<tr class="tkrow" onclick="openTaka('${end}',${m},'${esc(x.taka)}')"><td><b>${esc(x.taka)}</b></td><td class="n">${x.mtr}</td><td class="n">${x.total}</td><td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[g] || ''}</td><td class="muted" style="white-space:normal">${esc(x.remark)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
+    ${dayRows.length && dayRows[0].rolls.length ? `<h2 style="margin-top:14px">All takas on ${fmtDate(end).replace(/, \d{4}$/, '')} <span class="sub" style="font-weight:500">· click a taka for details</span></h2><div class="tbl-wrap" style="max-height:260px"><table><thead><tr><th>Taka</th><th class="n">Metres</th><th class="n">Faults</th>${SHOW_STOP(allS) ? '<th class="n">Stop lines</th>' : ''}<th>Grade</th><th>Remark</th></tr></thead><tbody>${dayRows[0].rolls.map(x => { const g = gradeOf(takaF100(x)); return `<tr class="tkrow" onclick="openTaka('${end}',${m},'${esc(x.taka)}')"><td><b>${esc(x.taka)}</b></td><td class="n">${x.mtr}</td><td class="n">${x.total}</td>${SHOW_STOP(allS) ? `<td class="n">${x.line || ''}</td>` : ''}<td>${{ green: '<span class="pill good">Good</span>', orange: '<span class="pill warning">Watch</span>', red: '<span class="pill critical">Second</span>' }[g] || ''}</td><td class="muted" style="white-space:normal">${esc(x.remark)}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
 `);
 }
 
@@ -970,7 +987,7 @@ function renderDailyDetail(el) {
     <div class="card kpi"><div class="l">Metres checked</div><div class="v">${fmt(tot.mtr)}</div><div class="d">avg ${fmt(tot.mtr / tot.takas, 0)} m / taka</div></div>
     <div class="card kpi"><div class="l">Faults per 100 m</div><div class="v" style="color:${ZONE[gradeOf(tot.f100)] || 'inherit'}">${fmt(tot.f100, 2)}</div><div class="d">${prevTot ? dlt(tot.f100, prevTot.f100) : `${fmt(tot.faults)} faults total`}</div></div>
     <div class="card kpi"><div class="l">Taarcut</div><div class="v">${fmt(tot.cutM)}<small>m cut</small></div><div class="d">${fmt(tot.cuts)} cuts in ${fmt(tot.cutTakas)} takas (${fmt(tot.cutTakas / tot.takas * 100, 0)}%) · ${fmt(cutPer1000, 1)} m per 1,000 m${prevCut != null ? '' : ''}</div></div>
-    <div class="card kpi"><div class="l">Loding takas</div><div class="v">${fmt(tot.loding)}</div><div class="d">TP ${fmt(tot.tp)} · Silai ${fmt(tot.silai)} · Line ${fmt(tot.line)} · Border cut ${fmt(tot.borderCut)}</div></div>
+    <div class="card kpi"><div class="l">Loding takas</div><div class="v">${fmt(tot.loding)}</div><div class="d">${HAS_TP() ? `TP ${fmt(tot.tp)} · ` : ''}Silai ${fmt(tot.silai)} · Stop lines ${fmt(tot.line)} · Border cut ${fmt(tot.borderCut)}</div></div>
   </div>
   <div class="grid two" style="margin-bottom:14px">
     <div class="card"><h2>Faults per 100 m by machine</h2><div id="macChart"></div>
@@ -991,11 +1008,11 @@ function renderDailyDetail(el) {
   // machine table
   const rowsT = MACS().map(m => {
     const s = ms[m] || null; const p = +prod[m] || 0; const ck = s ? s.takas : 0;
-    return { mac: m, prod: hasProd ? p : null, ck, diff: hasProd ? p - ck : null, bal: hasProd ? (bl[m] || 0) : null, mtr: s ? s.mtr : 0, avgLen: s ? s.avgLen : null, faults: s ? s.faults : 0, f100: s ? s.f100 : null, green: s ? s.green : 0, orange: s ? s.orange : 0, red: s ? s.red : 0, maxF: s ? s.maxF : null, maxTaka: s ? s.maxTaka : '', cuts: s ? s.cuts : 0, cutM: s ? s.cutM : 0, cutPct: s ? s.cutTakas / s.takas * 100 : null, loding: s ? s.loding : 0, tp: s ? s.tp : 0, silai: s ? s.silai : 0, prevF: B.prevMs && B.prevMs[m] ? B.prevMs[m].f100 : null };
+    return { mac: m, prod: hasProd ? p : null, ck, diff: hasProd ? p - ck : null, bal: hasProd ? (bl[m] || 0) : null, mtr: s ? s.mtr : 0, avgLen: s ? s.avgLen : null, faults: s ? s.faults : 0, f100: s ? s.f100 : null, green: s ? s.green : 0, orange: s ? s.orange : 0, red: s ? s.red : 0, maxF: s ? s.maxF : null, maxTaka: s ? s.maxTaka : '', cuts: s ? s.cuts : 0, cutM: s ? s.cutM : 0, cutPct: s ? s.cutTakas / s.takas * 100 : null, loding: s ? s.loding : 0, tp: s ? s.tp : 0, silai: s ? s.silai : 0, line: s ? s.line : 0, prevF: B.prevMs && B.prevMs[m] ? B.prevMs[m].f100 : null };
   });
   const k = S.sort.k, dir = S.sort.d;
   rowsT.sort((a, b) => ((a[k] ?? -1e9) > (b[k] ?? -1e9) ? 1 : (a[k] ?? -1e9) < (b[k] ?? -1e9) ? -1 : 0) * dir);
-  const cols = [['mac', 'Mac'], ['prod', 'Produced'], ['ck', 'Checked'], ['diff', 'Not chk (day)'], ['bal', 'Not chk (running)'], ['mtr', 'Metres'], ['avgLen', 'Avg m/taka'], ['faults', 'Faults'], ['f100', 'F / 100 m'], ['green', 'Green'], ['orange', 'Orange'], ['red', 'Red (2nd)'], ['prevF', 'Prior avg'], ['maxF', 'Worst taka'], ['cuts', 'Cuts'], ['cutM', 'Cut m'], ['cutPct', 'Taarcut takas %'], ['loding', 'Loding'], ['tp', 'TP'], ['silai', 'Silai']];
+  const cols = [['mac', 'Mac'], ['prod', 'Produced'], ['ck', 'Checked'], ['diff', 'Not chk (day)'], ['bal', 'Not chk (running)'], ['mtr', 'Metres'], ['avgLen', 'Avg m/taka'], ['faults', 'Faults'], ['f100', 'F / 100 m'], ['green', 'Green'], ['orange', 'Orange'], ['red', 'Red (2nd)'], ['prevF', 'Prior avg'], ['maxF', 'Worst taka'], ['cuts', 'Cuts'], ['cutM', 'Cut m'], ['cutPct', 'Taarcut takas %'], ['loding', 'Loding'], ...(HAS_TP() ? [['tp', 'TP']] : []), ['silai', 'Silai'], ['line', 'Stop lines']];
   const thr = med * 1.6;
   $('#macTbl').innerHTML = `<table><thead><tr>${cols.map(([c, l]) => `<th class="sortable ${c !== 'mac' ? 'n' : ''}" onclick="S.sort={k:'${c}',d:S.sort.k==='${c}'?-S.sort.d:(${c === 'mac'}?1:-1)};render()">${l}${S.sort.k === c ? (S.sort.d > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead><tbody>
   ${rowsT.map(r => `<tr class="click ${S.selMac === r.mac ? 'sel' : ''}" onclick="S.selMac=${r.mac};render()">
@@ -1010,8 +1027,8 @@ function renderDailyDetail(el) {
     <td class="n muted">${r.prevF == null ? '–' : fmt(r.prevF, 2)}</td>
     <td class="n">${r.maxF == null ? '–' : `${r.maxF} <span class="muted">#${esc(r.maxTaka)}</span>`}</td>
     <td class="n">${r.ck ? fmt(r.cuts) : '–'}</td><td class="n">${r.ck ? fmt(r.cutM) : '–'}</td><td class="n">${r.cutPct == null ? '–' : fmt(r.cutPct, 0) + '%'}</td>
-    <td class="n">${r.ck ? fmt(r.loding) : '–'}</td><td class="n">${r.ck ? fmt(r.tp) : '–'}</td><td class="n">${r.ck ? fmt(r.silai) : '–'}</td></tr>`).join('')}
-  </tbody><tfoot><tr><td>Total</td><td class="n">${hasProd ? fmt(prodTot) : '–'}</td><td class="n">${fmt(tot.takas)}</td><td class="n">${hasProd ? fmt(prodTot - tot.takas) : '–'}</td><td class="n">${hasProd ? fmt(blTot) : '–'}</td><td class="n">${fmt(tot.mtr)}</td><td class="n">${fmt(tot.mtr / tot.takas)}</td><td class="n">${fmt(tot.faults)}</td><td class="n">${fmt(tot.f100, 2)}</td><td class="n">${fmt(tot.green)}</td><td class="n">${fmt(tot.orange)}</td><td class="n">${fmt(tot.red)}</td><td class="n muted">${prevTot ? fmt(prevTot.f100, 2) : '–'}</td><td></td><td class="n">${fmt(tot.cuts)}</td><td class="n">${fmt(tot.cutM)}</td><td class="n">${fmt(tot.cutTakas / tot.takas * 100, 0)}%</td><td class="n">${fmt(tot.loding)}</td><td class="n">${fmt(tot.tp)}</td><td class="n">${fmt(tot.silai)}</td></tr></tfoot></table>`;
+    <td class="n">${r.ck ? fmt(r.loding) : '–'}</td>${HAS_TP() ? `<td class="n">${r.ck ? fmt(r.tp) : '–'}</td>` : ''}<td class="n">${r.ck ? fmt(r.silai) : '–'}</td><td class="n">${r.ck ? fmt(r.line) : '–'}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td>Total</td><td class="n">${hasProd ? fmt(prodTot) : '–'}</td><td class="n">${fmt(tot.takas)}</td><td class="n">${hasProd ? fmt(prodTot - tot.takas) : '–'}</td><td class="n">${hasProd ? fmt(blTot) : '–'}</td><td class="n">${fmt(tot.mtr)}</td><td class="n">${fmt(tot.mtr / tot.takas)}</td><td class="n">${fmt(tot.faults)}</td><td class="n">${fmt(tot.f100, 2)}</td><td class="n">${fmt(tot.green)}</td><td class="n">${fmt(tot.orange)}</td><td class="n">${fmt(tot.red)}</td><td class="n muted">${prevTot ? fmt(prevTot.f100, 2) : '–'}</td><td></td><td class="n">${fmt(tot.cuts)}</td><td class="n">${fmt(tot.cutM)}</td><td class="n">${fmt(tot.cutTakas / tot.takas * 100, 0)}%</td><td class="n">${fmt(tot.loding)}</td>${HAS_TP() ? `<td class="n">${fmt(tot.tp)}</td>` : ''}<td class="n">${fmt(tot.silai)}</td><td class="n">${fmt(tot.line)}</td></tr></tfoot></table>`;
 
   // taka panel
   if (S.selMac != null) {
@@ -1019,13 +1036,13 @@ function renderDailyDetail(el) {
     const s = ms[S.selMac];
     $('#takaPanel').innerHTML = `<div class="card" style="margin-bottom:14px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Machine ${S.selMac} — takas checked ${fmtDate(S.selDate)}</h2><button class="btn" onclick="S.selMac=null;render()">Close</button></div>
     ${rr.length ? `<div class="sub" style="margin:6px 0 10px">${rr.length} takas · ${fmt(s.mtr)} m · ${fmt(s.f100, 2)} faults/100 m · ${s.green} green · ${s.orange} orange · ${s.red} red (second) · taarcut ${s.cutM} m</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Taka no.</th><th class="n">Metres</th><th class="n">TP</th><th class="n">Fault</th><th class="n">Silai</th><th class="n">Line</th><th class="n">Total</th><th class="n">F / 100 m</th><th>Grade</th><th class="n">Cut m</th><th>Remark</th></tr></thead><tbody>
-    ${rr.map(r => { const f = r.mtr ? r.total / r.mtr * 100 : 0; return `<tr><td class="num">${esc(r.taka)}</td><td class="n">${fmt(r.mtr)}</td><td class="n">${r.tp || ''}</td><td class="n">${r.fault}</td><td class="n">${r.silai || ''}</td><td class="n">${r.line || ''}</td><td class="n"><b>${r.total}</b></td><td class="n">${zPill(f)}</td><td>${{ green: '<span class="pill good">Green</span>', orange: '<span class="pill warning">Orange</span>', red: '<span class="pill critical">Second</span>' }[gradeOf(f)] || ''}</td><td class="n">${r.cutM || ''}</td><td>${r.loding ? '<span class="pill warning">Loding</span> ' : ''}${r.hol ? '<span class="pill serious">Hole</span> ' : ''}${esc(r.remark)}</td></tr>`; }).join('')}
+    <div class="tbl-wrap"><table><thead><tr><th>Taka no.</th><th class="n">Metres</th>${HAS_TP() ? '<th class="n">TP</th>' : ''}<th class="n">Fault</th><th class="n">Silai</th><th class="n">Stop lines</th><th class="n">Total</th><th class="n">F / 100 m</th><th>Grade</th><th class="n">Cut m</th><th>Remark</th></tr></thead><tbody>
+    ${rr.map(r => { const f = r.mtr ? r.total / r.mtr * 100 : 0; return `<tr><td class="num">${esc(r.taka)}</td><td class="n">${fmt(r.mtr)}</td>${HAS_TP() ? `<td class="n">${r.tp || ''}</td>` : ''}<td class="n">${r.fault}</td><td class="n">${r.silai || ''}</td><td class="n">${r.line || ''}</td><td class="n"><b>${r.total}</b></td><td class="n">${zPill(f)}</td><td>${{ green: '<span class="pill good">Green</span>', orange: '<span class="pill warning">Orange</span>', red: '<span class="pill critical">Second</span>' }[gradeOf(f)] || ''}</td><td class="n">${r.cutM || ''}</td><td>${r.loding ? '<span class="pill warning">Loding</span> ' : ''}${r.hol ? '<span class="pill serious">Hole</span> ' : ''}${esc(r.remark)}</td></tr>`; }).join('')}
     </tbody></table></div>` : '<div class="muted" style="margin-top:8px">No takas checked for this machine on this day.</div>'}</div>`;
   } else $('#takaPanel').innerHTML = '';
 
   // defect mix
-  const mix = [['Fault (knitting)', tot.fault], ['Taarcut cuts', tot.cuts], ['Loding takas', tot.loding], ['TP', tot.tp], ['Silai', tot.silai], ['Border cut', tot.borderCut], ['Stop line', tot.line], ['Hole', tot.hol]].filter(x => x[1] > 0);
+  const mix = [['Fault (knitting)', tot.fault], ['Taarcut cuts', tot.cuts], ['Loding takas', tot.loding], ...(HAS_TP() ? [['TP', tot.tp]] : []), ['Silai', tot.silai], ['Border cut', tot.borderCut], ['Stop lines', tot.line], ['Hole', tot.hol]].filter(x => x[1] > 0);
   const mx = Math.max(...mix.map(x => x[1]), 1);
   $('#mix').innerHTML = mix.map(([l, v]) => `<div class="bar-row"><span class="lab">${l}</span><span class="trk"><i style="width:${v / mx * 100}%"></i></span><span class="val">${fmt(v)}</span></div>`).join('') + `<div class="sub" style="margin-top:8px">Counts are events, not weighted points. Taarcut metres: ${fmt(tot.cutM)} m (${fmt(tot.cutM / tot.mtr * 100, 2)}% of checked length).</div>`;
 }
@@ -1207,7 +1224,7 @@ function renderUpload() {
     <div class="pagehead"><div><div class="sub">${P.status === 'prod' ? 'Edit production' : 'Preview · ' + esc(P.name)}</div><h1>${fmtDate(d)}</h1></div>
       ${P.dates.length > 1 ? `<select onchange="S.pending.active=this.value;renderUpload()">${P.dates.map(x => `<option value="${x}" ${x === d ? 'selected' : ''}>${fmtDate(x)} (${P.byDate[x].length} takas)</option>`).join('')}</select>` : ''}</div>
     ${P.dates.length > 1 ? `<div class="banner info">This file has ${P.dates.length} days. All of them will be saved; production can be entered for each.</div>` : ''}
-    ${exists ? `<div class="banner warn">${fmtDate(d)} is already saved. Saving will replace its checking data (production you enter below is kept).</div>` : ''}
+    ${exists ? `<div class="banner err"><b>${fmtDate(d)} is already uploaded</b> (${S.days[d].rolls.length} takas${S.days[d].source ? ' from ' + esc(S.days[d].source) : ''}${whenWho(S.days[d]) ? ', ' + whenWho(S.days[d]) : ''}). Saving this file will <b>replace</b> it — you'll be asked to confirm. If you meant a different date, press Cancel and pick the right file.</div>` : ''}
     ${S.pendingFormat && S.pendingFormat !== FACTORIES[S.factory].pdf ? `<div class="banner err"><b>Check the factory:</b> this file looks like a ${S.pendingFormat === 'f1' ? 'Factory 1' : 'Factory 2'} report, but you are uploading into <b>${FNAME()}</b>. Saving is blocked — cancel, switch factory at the top, and upload again.</div>` : ''}
     ${unknown.length ? `<div class="banner warn">Machine numbers not in the ${FNAME()} list: ${unknown.join(', ')}. They will still be saved.</div>` : ''}
     ${P.warnings.length ? `<div class="banner warn"><b>${P.warnings.length} check${P.warnings.length > 1 ? 's' : ''} to look at:</b><br>${P.warnings.slice(0, 8).map(esc).join('<br>')}${P.warnings.length > 8 ? '<br>…' : ''}</div>` : ''}
@@ -1247,17 +1264,82 @@ function applyPaste() {
 }
 function editProd(date) { S.pending = { status: 'prod', name: '', byDate: { [date]: S.days[date].rolls }, dates: [date], warnings: [], prodFor: { [date]: { ...(S.days[date].production || {}) } }, active: date }; renderUpload(); }
 async function commitPending() {
-  const P = S.pending; const b = $('#saveBtn'); b.disabled = true; b.textContent = 'Saving…';
+  const P = S.pending; const b = $('#saveBtn'); b.disabled = true; b.textContent = 'Checking…';
+  const saved = [];
   try {
+    if (P.status !== 'prod') {
+      const now = await freshDays(P.dates);
+      const issues = [];
+      for (const d of P.dates) {
+        const ex = now[d];
+        if (ex && ex.rolls.length) issues.push(`<b>${shortD(d)} is already uploaded</b> — ${ex.rolls.length} takas${ex.source ? ' from <i>' + esc(ex.source) + '</i>' : ''}${whenWho(ex) ? ', ' + whenWho(ex) : ''}. This file has <b>${P.byDate[d].length}</b> takas for ${shortD(d)}. If you continue, the old ${shortD(d)} figures will be <b>replaced</b> by this file.`);
+        const rep2 = repeatedTakas(d, P.byDate[d]);
+        if (rep2) issues.push(`${rep2.hit} of the taka numbers in this file are <b>already saved under ${shortD(rep2.x)}</b>. This may be the ${shortD(rep2.x)} report uploaded again.`);
+      }
+      issues.push(...dateProblems(P.dates));
+      if (P.dates.length > 1) issues.unshift(`This file contains <b>${P.dates.length} dates</b>: ${P.dates.map(shortD).join(', ')}. All of them will be saved.`);
+      if (issues.length) {
+        const ok = await confirmBox({ title: 'Please check before saving', html: `<div class="attn">${issues.map(i => `<div><span>${i}</span></div>`).join('')}</div><p style="margin:12px 0 0">Report date${P.dates.length > 1 ? 's' : ''} in this file: <b>${P.dates.map(d => fmtDate(d)).join(', ')}</b></p>`, ok: 'Yes, save and replace', danger: issues.some(i => i.includes('already')) });
+        if (!ok) { b.disabled = false; b.textContent = P.dates.length > 1 ? `Save ${P.dates.length} days` : 'Save report'; return; }
+      }
+    }
+    b.textContent = 'Saving…';
     if (P.status === 'prod') await saveProduction(P.active, P.prodFor[P.active]);
-    else for (const d of P.dates) await saveDay(d, P.byDate[d], P.prodFor[d] || {}, P.name);
+    else for (const d of P.dates) { await saveDay(d, P.byDate[d], P.prodFor[d] || {}, P.name); saved.push(d); }
     const go = P.active; S.pending = null; S.prefillDate = null; S.selDate = go; S.selMac = null;
     toast('Saved'); location.hash = 'daily'; render();
   } catch (e) {
     b.disabled = false; b.textContent = 'Retry save';
-    const code = e && e.code; toast(code === 'invalid_argument' ? `You don't have upload rights for ${FNAME()}` : code === 'quota_exceeded' ? 'Storage is full — delete old days in History' : 'Save failed — try again');
+    const code = e && e.code; const part = saved.length ? `Saved ${saved.map(shortD).join(', ')}, but ` : '';
+    toast(part + (code === 'invalid_argument' ? `you don't have upload rights for ${FNAME()}` : code === 'quota_exceeded' ? 'storage is full' : 'save failed — ' + (e.message || 'try again')));
     if (code === 'invalid_argument') { render(); }
   }
+}
+
+// ===================== SAFETY CHECKS BEFORE SAVING =====================
+// A yes/no dialog. Resolves true only when the person clicks the confirm button.
+function confirmBox({ title, html, ok = 'Yes, save', danger = false }) {
+  return new Promise(res => {
+    const bg = document.createElement('div'); bg.className = 'modal-bg';
+    bg.innerHTML = `<div class="modal wide"><h2 style="font-size:18px">${title}</h2><div style="font-size:14px;line-height:1.5">${html}</div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn" id="cbNo">Cancel</button><button class="btn primary" id="cbYes" ${danger ? 'style="background:var(--bad);border-color:var(--bad)"' : ''}>${ok}</button></div></div>`;
+    document.body.appendChild(bg);
+    const done = v => { bg.remove(); document.removeEventListener('keydown', k); res(v); };
+    function k(e) { if (e.key === 'Escape') done(false); }
+    document.addEventListener('keydown', k);
+    bg.querySelector('#cbNo').onclick = () => done(false); bg.querySelector('#cbYes').onclick = () => done(true);
+    bg.onclick = e => { if (e.target === bg) done(false); };
+    bg.querySelector('#cbNo').focus();
+  });
+}
+// Ask the database what is saved right now for these dates (someone else may have uploaded since this page was opened).
+async function freshDays(dates) {
+  if (demoMode) return Object.fromEntries(dates.filter(d => S.days[d]).map(d => [d, S.days[d]]));
+  const { data, error } = await SB.from('quality_days').select('date,rolls,production,source,saved_at,saved_by').eq('factory', S.factory).in('date', dates);
+  if (error) throw sbErr(error);
+  const out = {}; for (const r of data || []) out[r.date] = { rolls: r.rolls || [], production: r.production || {}, source: r.source, savedAt: r.saved_at, savedBy: r.saved_by };
+  return out;
+}
+const whenWho = d => { const t = d.savedAt ? new Date(d.savedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''; const who = d.savedBy && S.names && S.names[d.savedBy] ? ' by ' + esc(S.names[d.savedBy]) : ''; return t ? `saved ${t}${who}` : ''; };
+const shortD = x => fmtDate(x).replace(/, \d{4}$/, '');
+function dateProblems(dates) {
+  const today = isoToday(0), old = isoToday(-10), out = [];
+  for (const d of dates) {
+    if (d > today) out.push(`<b>${shortD(d)}</b> is a <b>future date</b>. Check the date inside the file.`);
+    else if (d < old) out.push(`<b>${shortD(d)}</b> is more than 10 days old. Is this the right report?`);
+  }
+  return out;
+}
+// Same taka numbers already saved under a different date = probably the same report uploaded again under the wrong date.
+function repeatedTakas(date, rows) {
+  const keys = new Set(rows.map(r => r.mac + ':' + r.taka)); if (keys.size < 5) return null;
+  let best = null;
+  for (const x of sortedDates()) {
+    if (x === date || !S.days[x].rolls.length) continue;
+    const hit = S.days[x].rolls.filter(r => keys.has(r.mac + ':' + r.taka)).length;
+    if (!best || hit > best.hit) best = { x, hit };
+  }
+  return best && best.hit / keys.size >= 0.3 ? best : null;
 }
 
 // ===================== PRODUCTION =====================
@@ -1379,39 +1461,61 @@ async function saveProdDraft() {
   const list = P && P.status === 'review' ? P.days.map(d => ({ date: d.date, prod: { ...d.prod }, prodDate: d.prodDate })) : [{ date: S.prodDate, prod: { ...S.prodDraft.prod }, prodDate: null }];
   if (list.some(x => !x.date)) return toast('Pick a date');
   if (list.some(x => !Object.keys(x.prod).length)) return toast('Enter at least one machine');
-  b.disabled = true; b.textContent = 'Saving…';
+  b.disabled = true; b.textContent = 'Checking…';
+  const saved = [];
   try {
-    for (const x of list) await saveProductionDay(x.date, x.prod, P && P.name, x.prodDate);
+    const now = await freshDays(list.map(x => x.date));
+    const issues = [];
+    for (const x of list) {
+      const ex = now[x.date]; const newT = sumProd(x.prod);
+      if (ex && Object.keys(ex.production || {}).length) {
+        const oldT = sumProd(ex.production); const same = JSON.stringify(Object.entries(ex.production).filter(([, v]) => +v).sort()) === JSON.stringify(Object.entries(x.prod).filter(([, v]) => +v).map(([k, v]) => [k, +v]).sort());
+        if (!same) issues.push(`<b>Production for ${shortD(x.date)} is already saved</b> (${oldT} takas${whenWho(ex) ? ', ' + whenWho(ex) : ''}). Saving will <b>replace</b> it with ${newT} takas.`);
+      }
+      const d2 = P && P.status === 'review' ? P.days.find(y => y.date === x.date) : null;
+      if (d2 && d2.sheetTotal != null && newT !== d2.sheetTotal) issues.push(`For ${shortD(x.date)} the machines add up to <b>${newT}</b> but the sheet's TOTAL is <b>${d2.sheetTotal}</b>.`);
+      if (ex && ex.rolls && ex.rolls.length && newT && ex.rolls.length > newT * 1.5 + 5) issues.push(`For ${shortD(x.date)}, ${ex.rolls.length} takas were checked but only ${newT} are entered as produced. Is the date right?`);
+    }
+    issues.push(...dateProblems(list.map(x => x.date)));
+    if (issues.length) {
+      const ok = await confirmBox({ title: 'Please check before saving', html: `<div class="attn">${issues.map(i => `<div><span>${i}</span></div>`).join('')}</div>`, ok: 'Yes, save', danger: issues.some(i => i.includes('already')) });
+      if (!ok) { b.disabled = false; b.textContent = list.length > 1 ? `Save all ${list.length} days` : 'Save production'; return; }
+    }
+    b.textContent = 'Saving…';
+    for (const x of list) { await saveProductionDay(x.date, x.prod, P && P.name, x.prodDate); saved.push(x.date); }
     S.prodPending = null; S.prodDraft = null; S.prodDate = list[list.length - 1].date;
     toast(list.length > 1 ? `Production saved for ${list.length} days` : `Production saved for ${fmtDate(list[0].date)}`); S.selDate = list[list.length - 1].date; renderProduction();
-  } catch (e) { b.disabled = false; b.textContent = 'Retry save'; toast(e.code === 'invalid_argument' ? `You don't have upload rights for ${FNAME()}` : 'Save failed: ' + (e.message || 'try again')); }
+  } catch (e) { b.disabled = false; b.textContent = 'Retry save'; const part = saved.length ? `Saved ${saved.map(shortD).join(', ')}, but ` : ''; toast(part + (e.code === 'invalid_argument' ? `you don't have upload rights for ${FNAME()}` : 'save failed: ' + (e.message || 'try again'))); }
 }
 
 // ===================== MACHINE HISTORY =====================
 function renderMachineHistory() {
   const el = $('#v-machine'); const ds = checkedDates();
   if (!ds.length) { el.innerHTML = `<div class="card empty"><b>No data yet</b>Upload checking reports first.</div>`; return; }
-  if (!S.rep) { S.rep = { mac: S.mMac || MACS()[0] }; repQuickSilent(7); }
-  if (S.mMac) { S.rep.mac = S.mMac; S.mMac = null; }
+  if (!S.rep) { S.rep = { macs: [S.mMac || MACS()[0]] }; repQuickSilent(7); }
+  if (S.mMac) { S.rep.macs = [S.mMac]; S.mMac = null; }
   const R = S.rep;
   const lab = 'display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600;color:#334155';
   const bad = R.from > R.to;
   const D = bad ? null : reportData();
+  if (!bad && !repMacs().length) D.checked = 0;
   el.innerHTML = `
   <div style="max-width:460px;margin:30px auto">
     <div class="card" style="padding:22px">
       <h1 style="margin:0 0 4px">Machine report</h1>
-      <div class="sub" style="margin-bottom:18px">${FNAME()} · choose a machine and dates, then download the PDF</div>
+      <div class="sub" style="margin-bottom:18px">${FNAME()} · choose one or more machines and the dates, then download the PDF</div>
       <div style="display:flex;flex-direction:column;gap:14px">
-        <label style="${lab}">Machine
-          <select onchange="S.rep.mac=this.value;renderMachineHistory()">${MACS().map(m => `<option value="${m}" ${String(R.mac) === String(m) ? 'selected' : ''}>Machine ${m}</option>`).join('')}<option value="all" ${R.mac === 'all' ? 'selected' : ''}>All machines</option></select></label>
+        <div style="${lab}"><div class="row" style="justify-content:space-between">Machines <span class="row" style="gap:6px"><button class="btn sm" onclick="S.rep.macs=MACS().slice();renderMachineHistory()">Select all</button><button class="btn sm" onclick="S.rep.macs=[];renderMachineHistory()">Clear</button></span></div>
+          <div class="mpick">${MACS().map(m => `<button class="${repMacs().includes(m) ? 'on' : ''}" onclick="toggleRepMac(${m})">M${m}</button>`).join('')}</div>
+          <div class="sub" style="font-weight:500">${repMacs().length ? `${repMacs().length} selected — ${esc(repLabel())}` : 'Tap machines to select them (one or more)'}</div></div>
         <div style="${lab}">Period
           <div class="quick">${[[1, 'Last day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([n, l]) => `<button class="${quickOn(n) ? 'on' : ''}" onclick="repQuick(${n})">${l}</button>`).join('')}</div></div>
         <label style="${lab}">Start date<input type="date" value="${R.from}" onchange="S.rep.from=this.value;S.rep.quick=null;renderMachineHistory()"></label>
         <label style="${lab}">End date<input type="date" value="${R.to}" onchange="S.rep.to=this.value;S.rep.quick=null;renderMachineHistory()"></label>
       </div>
       ${bad ? `<div class="banner err" style="margin-top:14px">Start date is after end date.</div>`
-        : !D.checked ? `<div class="banner warn" style="margin-top:14px">No rolls checked on ${R.mac === 'all' ? 'any machine' : 'machine ' + R.mac} between these dates.</div>`
+        : !repMacs().length ? `<div class="banner warn" style="margin-top:14px">Select at least one machine.</div>`
+        : !D.checked ? `<div class="banner warn" style="margin-top:14px">No rolls checked on ${esc(repLabel().toLowerCase())} between these dates.</div>`
         : `<div class="sub" style="margin-top:14px">${D.checked} rolls checked${D.produced ? ` out of ${D.produced} produced` : ''} in this period.</div>`}
       <button class="btn primary" id="repPdf" style="width:100%;margin-top:16px;padding:12px" ${bad || !D.checked ? 'disabled' : ''} onclick="downloadReportPdf()">Download PDF</button>
     </div>
@@ -1419,7 +1523,7 @@ function renderMachineHistory() {
 }
 function downloadMachineCsv() {
   const rows = S.mRows || []; const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const head = ['Factory', 'Machine', 'Date', 'Taka', 'Metres', 'Fault', 'Silai', 'Line', S.factory === 2 ? 'Stop' : 'TP', 'Total', 'Faults per 100 m', 'Grade', 'Cut m', 'Remark', 'Checker'];
+  const head = ['Factory', 'Machine', 'Date', 'Taka', 'Metres', 'Fault', 'Silai', 'Stop lines', 'TP', 'Total', 'Faults per 100 m', 'Grade', 'Cut m', 'Remark', 'Checker'];
   const lines = [head.join(',')].concat(rows.map(r => [S.factory, r.mac, r.d, r.taka, r.mtr, r.fault, r.silai, r.line, r.tp, r.total, r.f == null ? '' : r.f.toFixed(2), gradeWord(r.g), r.cutM || '', r.remark, r.checker].map(q).join(',')));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `F${S.factory}-M${S.mMac}-rolls.csv`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
@@ -1427,9 +1531,12 @@ function downloadMachineCsv() {
 
 // ===================== REPORTS (PDF / Excel) =====================
 const ddmmyyyy = iso => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+function repMacs() { const R = S.rep; const all = MACS(); if (!R) return []; if (!Array.isArray(R.macs)) R.macs = R.mac === 'all' ? all.slice() : R.mac != null ? [+R.mac] : [all[0]]; return all.filter(m => R.macs.includes(m)); }
+function repLabel() { const ms = repMacs(); if (ms.length === MACS().length) return 'All machines'; if (!ms.length) return 'No machine'; return ms.length === 1 ? 'Machine ' + ms[0] : 'Machines ' + ms.join(', '); }
+function toggleRepMac(m) { const set = new Set(repMacs()); set.has(m) ? set.delete(m) : set.add(m); S.rep.macs = [...set]; renderMachineHistory(); }
 function reportData() {
   const R = S.rep; const all = sortedDates().filter(x => x >= R.from && x <= R.to);
-  const macs = R.mac === 'all' ? MACS() : [+R.mac];
+  const macs = repMacs();
   const rolls = all.flatMap(x => S.days[x].rolls.filter(r => macs.includes(r.mac)));
   let produced = 0; const prodBy = {}; const noProdDays = [];
   for (const x of all) {
@@ -1470,7 +1577,7 @@ function renderReports() {
   </div>
   <div class="card"><h2>Summary for this selection</h2>
     ${!D.checked ? '<div class="muted">No rolls checked in this period.</div>' : `
-    <p class="headline">${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac} · ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}</p>
+    <p class="headline">${repLabel()} · ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}</p>
     <div class="big3" style="grid-template-columns:repeat(3,1fr)">
       <div class="t" style="background:#f8fafc;border-color:var(--line);color:var(--ink)"><div class="n">${D.produced}</div><div class="w">Produced</div></div>
       <div class="t g"><div class="n">${D.checked}<small>${pctTxt(D.checked, D.produced)}</small></div><div class="w">Checked</div></div>
@@ -1486,13 +1593,13 @@ function repQuickSilent(n) { const cd = checkedDates(); const to = cd[cd.length 
 function quickOn(n) { return !!S.rep && S.rep.quick === n; }
 // calendar days ending on the latest uploaded report: Last day = that day, Last 3 days = that day and the 2 before it, etc.
 function repQuick(n) { const cd = checkedDates(); if (!cd.length) return; const to = cd[cd.length - 1]; const d = new Date(to + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (n - 1)); S.rep.from = d.toISOString().slice(0, 10); S.rep.to = to; S.rep.quick = n; render(); }
-function repFileName(ext) { const R = S.rep; return `F${S.factory}-${R.mac === 'all' ? 'all-machines' : 'M' + R.mac}-${R.from}_to_${R.to}.${ext}`; }
+function repFileName(ext) { const R = S.rep, ms = repMacs(); const who = ms.length === MACS().length ? 'all-machines' : ms.length <= 4 ? ms.map(m => 'M' + m).join('-') : ms.length + '-machines'; return `F${S.factory}-${who}-${R.from}_to_${R.to}.${ext}`; }
 function saveBlob(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 function reportColumns() {
   // same columns as the factory's own checking report
   return S.factory === 2
-    ? [['DATE', 52, r => ddmmyyyy(r.date)], ['MAC', 26, r => r.mac, 'c'], ['TAKA', 38, r => r.taka, 'c'], ['FAULT', 34, r => r.fault || '', 'c'], ['SILAI', 34, r => r.silai || '', 'c'], ['STOP', 32, r => r.tp || '', 'c'], ['TOTAL', 36, r => r.total, 'c', 'grade'], ['METER', 38, r => r.mtr, 'c'], ['cut', 28, r => r.cutCol || '', 'c'], ['REMARK', 120, r => r.remark], ['CHECKER', 62, r => r.checker]]
-    : [['DATE', 54, r => ddmmyyyy(r.date)], ['MAC', 28, r => r.mac, 'c'], ['TAKA NO', 44, r => r.taka, 'c'], ['TP', 26, r => r.tp || '', 'c'], ['FAULT', 34, r => r.fault, 'c'], ['SILAI', 32, r => r.silai || '', 'c'], ['LINE', 30, r => r.line || '', 'c'], ['TOTAL FAULT', 54, r => r.total, 'c', 'grade'], ['MTR', 36, r => r.mtr, 'c'], ['REMARK', 162, r => r.remark]];
+    ? [['DATE', 52, r => ddmmyyyy(r.date)], ['MAC', 26, r => r.mac, 'c'], ['TAKA', 38, r => r.taka, 'c'], ['FAULT', 34, r => r.fault || '', 'c'], ['SILAI', 34, r => r.silai || '', 'c'], ['STOP', 32, r => r.line || '', 'c'], ['TOTAL', 36, r => r.total, 'c', 'grade'], ['METER', 38, r => r.mtr, 'c'], ['cut', 28, r => r.cutCol || '', 'c'], ['REMARK', 120, r => r.remark], ['CHECKER', 62, r => r.checker]]
+    : [['DATE', 54, r => ddmmyyyy(r.date)], ['MAC', 28, r => r.mac, 'c'], ['TAKA NO', 44, r => r.taka, 'c'], ['TP', 26, r => r.tp || '', 'c'], ['FAULT', 34, r => r.fault, 'c'], ['SILAI', 32, r => r.silai || '', 'c'], ['STOP LINE', 42, r => r.line || '', 'c'], ['TOTAL FAULT', 54, r => r.total, 'c', 'grade'], ['MTR', 36, r => r.mtr, 'c'], ['REMARK', 162, r => r.remark]];
 }
 let pdfLibLoading = null;
 async function downloadReportPdf() {
@@ -1517,12 +1624,12 @@ async function buildReportPdf() {
   const GREY = rgb(0.85, 0.85, 0.85), LINE = rgb(0.55, 0.55, 0.55), INK = rgb(0, 0, 0);
   const GBG = { green: rgb(0.86, 0.96, 0.88), orange: rgb(1, 0.93, 0.78), red: rgb(0.99, 0.83, 0.83) };
   const title = `GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`;
-  const subtitle = `${R.mac === 'all' ? 'ALL MACHINES' : 'MACHINE ' + R.mac}   |   ${ddmmyyyy(R.from)} TO ${ddmmyyyy(R.to)}   |   ${D.checked} ROLLS`;
+  const subtitle = `${repLabel().toUpperCase()}   |   ${ddmmyyyy(R.from)} TO ${ddmmyyyy(R.to)}   |   ${D.checked} ROLLS`;
   let page, y; const pages = [];
   const newPage = (withHeader = true) => {
     page = doc.addPage([W, H]); pages.push(page); y = H - M;
     page.drawText(title, { x: M, y: y - 10, size: 11, font: FB, color: INK });
-    page.drawText(subtitle, { x: M, y: y - 24, size: 8.5, font: F, color: rgb(0.25, 0.25, 0.25) });
+    page.drawText(fit(subtitle, W - 2 * M, F, 8.5), { x: M, y: y - 24, size: 8.5, font: F, color: rgb(0.25, 0.25, 0.25) });
     y -= 34; if (withHeader) drawHeader();
   };
   const drawHeader = () => {
@@ -1553,35 +1660,60 @@ async function buildReportPdf() {
   }
   // ---- summary ----
   const notChk = Math.max(0, D.produced - D.checked);
-  const perMacRows = R.mac === 'all' ? D.perMac.filter(p => p.prod || p.chk) : [];
-  const need = 120 + (perMacRows.length ? (perMacRows.length + 2) * 13 : 0);
+  const perMacRows = repMacs().length > 1 ? D.perMac.filter(p => p.prod || p.chk) : [];
+  const need = 190 + (perMacRows.length ? (perMacRows.length + 2) * 13 : 0);
   if (y - need < M) newPage(false);
   y -= 16;
   const boxTop = y, bx = M, bw = W - 2 * M;
   page.drawText('SUMMARY', { x: bx + 10, y: y - 16, size: 10, font: FB });
-  page.drawText(`${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}  (${D.days.length} report day${D.days.length > 1 ? 's' : ''})`, { x: bx + 75, y: y - 16, size: 8.5, font: F });
+  page.drawText(fit(`${repLabel()}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}  (${D.days.length} report day${D.days.length > 1 ? 's' : ''})`, bw - 90, F, 8.5), { x: bx + 75, y: y - 16, size: 8.5, font: F });
   y -= 30;
-  const kv = [
-    ['Rolls produced', `${D.produced}`, ''],
-    ['Rolls checked', `${D.checked}`, D.produced ? `${pctTxt(D.checked, D.produced)} of produced` : ''],
-    ['Rolls not checked', `${notChk}`, D.produced ? `${pctTxt(notChk, D.produced)} of produced` : ''],
-    ['Metres checked', fmt(D.t.mtr), ''],
-    ['Quality of checked rolls', `${D.t.green} good  |  ${D.t.orange} watch  |  ${D.t.red} second quality`, `${pctTxt(D.t.red, D.t.takas)} second quality`]];
-  for (const [k, v, n] of kv) {
-    page.drawText(k, { x: bx + 10, y, size: 9, font: F, color: rgb(0.25, 0.25, 0.25) });
-    page.drawText(clean(v), { x: bx + 150, y, size: 9.5, font: FB });
-    if (n) page.drawText(n, { x: bx + 360, y, size: 9, font: FB, color: k === 'Rolls not checked' ? rgb(0.7, 0.35, 0) : k === 'Rolls checked' ? rgb(0, 0.45, 0.2) : D.t.red ? rgb(0.7, 0.1, 0.1) : rgb(0, 0.45, 0.2) });
-    y -= 14;
-  }
+  // left: plain counts
+  const kv = [['Rolls produced', `${D.produced}`], ['Rolls checked', `${D.checked}`], ['Rolls not checked', `${notChk}`], ['Metres checked', fmt(D.t.mtr)],
+    ['Good rolls', `${D.t.green}`], ['Watch rolls', `${D.t.orange}`], ['Second quality rolls', `${D.t.red}`]];
+  if (SHOW_STOP(D.t)) kv.push(['Stop lines', `${D.t.line}  (${D.t.mtr ? (D.t.line / D.t.mtr * 100).toFixed(1) : 0} per 100 m)`]);
+  const kvTop = y;
+  for (const [k, v] of kv) { page.drawText(k, { x: bx + 10, y, size: 9, font: F, color: rgb(0.25, 0.25, 0.25) }); page.drawText(clean(v), { x: bx + 120, y, size: 9.5, font: FB }); y -= 14; }
+  // right: two pie charts
+  const CG = rgb(0.086, 0.639, 0.29), CO = rgb(0.96, 0.62, 0.04), CR = rgb(0.86, 0.15, 0.15), CN = rgb(0.8, 0.82, 0.85);
+  const pie = (cx, cy, r, parts, title) => {
+    const tw3 = FB.widthOfTextAtSize(title, 8.5); page.drawText(title, { x: cx - tw3 / 2, y: cy + r + 10, size: 8.5, font: FB });
+    const tot = parts.reduce((a2, p2) => a2 + p2.v, 0);
+    if (!tot) { page.drawCircle({ x: cx, y: cy, size: r, color: CN }); const t3 = 'no data'; page.drawText(t3, { x: cx - F.widthOfTextAtSize(t3, 8) / 2, y: cy - 3, size: 8, font: F }); return; }
+    let a0 = -Math.PI / 2; // start at 12 o'clock, clockwise
+    const nz = parts.filter(p2 => p2.v > 0);
+    for (const p2 of nz) {
+      const frac = p2.v / tot, a1 = a0 + frac * 2 * Math.PI;
+      if (nz.length === 1) page.drawCircle({ x: cx, y: cy, size: r, color: p2.c });
+      else {
+        const x0 = r * Math.cos(a0), y0 = r * Math.sin(a0), x1 = r * Math.cos(a1), y1 = r * Math.sin(a1);
+        page.drawSvgPath(`M 0 0 L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`, { x: cx, y: cy, color: p2.c, borderColor: rgb(1, 1, 1), borderWidth: 0.8 });
+      }
+      // % label: inside the slice if big enough, else just outside
+      // % on the slice when it is big enough to hold it; small slices show their % in the colour key only
+      if (frac >= 0.1) { const mid = (a0 + a1) / 2, rr = nz.length === 1 ? 0 : r * 0.58; const lbl = Math.round(frac * 100) + '%'; const lw = FB.widthOfTextAtSize(lbl, 8.5);
+        page.drawText(lbl, { x: cx + rr * Math.cos(mid) - lw / 2, y: cy - rr * Math.sin(mid) - 3, size: 8.5, font: FB, color: rgb(1, 1, 1) }); }
+      a0 = a1;
+    }
+    // colour key under the chart
+    let ly = cy - r - 14;
+    for (const p2 of parts) { page.drawRectangle({ x: cx - 38, y: ly - 1, width: 7, height: 7, color: p2.c }); page.drawText(clean(`${p2.l}: ${p2.v} (${tot ? (p2.v / tot * 100).toFixed(1) : 0}%)`), { x: cx - 27, y: ly, size: 7, font: F, color: rgb(0.25, 0.25, 0.25) }); ly -= 10; }
+  };
+  const PR = 34, pcy = kvTop - 46;
+  const chkPart = Math.min(D.checked, D.produced);
+  pie(bx + 300, pcy, PR, D.produced ? [{ l: 'Checked', v: chkPart, c: CG }, { l: 'Not checked', v: notChk, c: CO }] : [], 'Checked vs produced');
+  pie(bx + 450, pcy, PR, [{ l: 'Good', v: D.t.green, c: CG }, { l: 'Watch', v: D.t.orange, c: CO }, { l: 'Second quality', v: D.t.red, c: CR }], 'Quality of checked rolls');
+  y = Math.min(y, pcy - PR - 14 - 3 * 10) - 2;
   const notes = [];
-  if (D.checked > D.produced && D.produced) notes.push('More rolls were checked than produced in this period (rolls produced before the start date were checked inside it).');
+  if (D.checked > D.produced && D.produced) notes.push('More rolls were checked than produced in this period (rolls produced before the start date were checked inside it), so the first chart shows 100% checked.');
   if (D.noProdDays.length) notes.push('Production not entered for: ' + D.noProdDays.map(ddmmyyyy).join(', ') + '.');
   if (S.factory === 2) notes.push('Production is matched to checking dates as in the DIFF sheet (previous day\'s production).');
-  notes.push(`Grade per roll: good up to ${GRADE.greenMax} faults per 100 m, watch ${GRADE.greenMax}-${GRADE.redMin}, second quality ${GRADE.redMin}+ (TOTAL cell colour).`);
-  for (const n of notes) { page.drawText(fit(n, bw - 20, F, 7.5), { x: bx + 10, y, size: 7.5, font: F, color: rgb(0.35, 0.35, 0.35) }); y -= 11; }
+  notes.push(`Colours: green = checked / good roll (up to ${GRADE.greenMax} faults per 100 m), orange = not checked / watch (${GRADE.greenMax}-${GRADE.redMin}), red = second quality (${GRADE.redMin}+). Same colours on the TOTAL cells above.`);
+  const wrap = (txt, w, f, sz) => { const out = []; let line = ''; for (const wd of clean(txt).split(' ')) { const t4 = line ? line + ' ' + wd : wd; if (f.widthOfTextAtSize(t4, sz) > w && line) { out.push(line); line = wd; } else line = t4; } if (line) out.push(line); return out; };
+  for (const n of notes) for (const ln of wrap(n, bw - 20, F, 7.5)) { page.drawText(ln, { x: bx + 10, y, size: 7.5, font: F, color: rgb(0.35, 0.35, 0.35) }); y -= 10; }
   if (perMacRows.length) {
     y -= 6;
-    const pc = [['MACHINE', 70], ['PRODUCED', 80], ['CHECKED', 80], ['% CHECKED', 80], ['NOT CHECKED', 85], ['% NOT CHECKED', 85], ['SECOND QUALITY', 75]];
+    const pc = [['MACHINE', 70], ['PRODUCED', 80], ['CHECKED', 80], ['% CHECKED', 80], ['NOT CHECKED', 85], ['% NOT CHECKED', 85], ['SECOND QUALITY', 75]]; const withStop = SHOW_STOP(D.t); if (withStop) pc.push(['STOP LINES', 70]);
     const sc = (bw - 20) / pc.reduce((a, c) => a + c[1], 0); pc.forEach(c => c[1] *= sc);
     const row = (vals, bold, bg) => {
       let x = bx + 10; if (bg) page.drawRectangle({ x, y: y - 12, width: bw - 20, height: 12, color: bg });
@@ -1592,8 +1724,8 @@ async function buildReportPdf() {
     };
     page.drawLine({ start: { x: bx + 10, y }, end: { x: bx + bw - 10, y }, thickness: 0.4, color: LINE });
     row(pc.map(c => c[0]), true, GREY);
-    for (const p of perMacRows) row([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0]);
-    row(['TOTAL', D.produced, D.checked, pctTxt(D.checked, D.produced), notChk, pctTxt(notChk, D.produced), D.t.red], true, GREY);
+    for (const p of perMacRows) row([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0, ...(withStop ? [p.s ? p.s.line : 0] : [])]);
+    row(['TOTAL', D.produced, D.checked, pctTxt(D.checked, D.produced), notChk, pctTxt(notChk, D.produced), D.t.red, ...(withStop ? [D.t.line] : [])], true, GREY);
   }
   y -= 8;
   page.drawRectangle({ x: bx, y, width: bw, height: boxTop - y, borderColor: rgb(0.2, 0.2, 0.2), borderWidth: 0.8 });
@@ -1607,12 +1739,12 @@ async function downloadReportXlsx() {
     if (!window.XLSX) await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
     const R = S.rep, D = reportData(); const cols = reportColumns();
     const rows = D.rolls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.mac - b.mac);
-    const aoa = [[`GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`], [`${R.mac === 'all' ? 'All machines' : 'Machine ' + R.mac}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}`], [],
+    const aoa = [[`GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`], [`${repLabel()}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}`], [],
       cols.map(c => c[0]).concat(['PER 100 M', 'GRADE'])];
     for (const r of rows) { const f = takaF100(r); aoa.push(cols.map(c => { const v = c[2](r); return v === '' ? '' : (typeof v === 'number' || /^\d+(\.\d+)?$/.test(String(v)) && c[0] !== 'DATE' ? +v : v); }).concat([f == null ? '' : +f.toFixed(2), gradeWord(gradeOf(f))])); }
     const notChk = Math.max(0, D.produced - D.checked);
     aoa.push([], ['SUMMARY'], ['Rolls produced', D.produced], ['Rolls checked', D.checked, D.produced ? pctTxt(D.checked, D.produced) + ' of produced' : ''], ['Rolls not checked', notChk, D.produced ? pctTxt(notChk, D.produced) + ' of produced' : ''], ['Metres checked', D.t.mtr], ['Good / watch / second quality', D.t.green, D.t.orange, D.t.red]);
-    if (R.mac === 'all') { aoa.push([], ['MACHINE', 'PRODUCED', 'CHECKED', '% CHECKED', 'NOT CHECKED', '% NOT CHECKED', 'SECOND QUALITY']); D.perMac.filter(p => p.prod || p.chk).forEach(p => aoa.push([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0])); }
+    if (repMacs().length > 1) { aoa.push([], ['MACHINE', 'PRODUCED', 'CHECKED', '% CHECKED', 'NOT CHECKED', '% NOT CHECKED', 'SECOND QUALITY']); D.perMac.filter(p => p.prod || p.chk).forEach(p => aoa.push([p.m, p.prod, p.chk, pctTxt(p.chk, p.prod), Math.max(0, p.prod - p.chk), pctTxt(Math.max(0, p.prod - p.chk), p.prod), p.s ? p.s.red : 0])); }
     const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = cols.map(c => ({ wch: Math.max(8, Math.round(c[1] / 5)) })).concat([{ wch: 10 }, { wch: 14 }]);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Report');
     const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -1662,20 +1794,64 @@ async function setAccess(uid, f, box) {
 // ===================== HISTORY =====================
 function renderHistory() {
   const el = $('#v-history'); const ds = sortedDates().slice().reverse();
-  el.innerHTML = `<div class="pagehead"><div><div class="sub">${FNAME()}</div><h1>Saved days</h1></div>${demoMode ? '' : '<button class="btn" onclick="loadAll()">Refresh</button>'}</div>
-  ${!ds.length ? `<div class="card empty"><b>Nothing saved yet</b></div>` : `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Date</th><th class="n">Takas checked</th><th class="n">Produced</th><th class="n">Metres</th><th class="n">F / 100 m</th><th class="n">Second takas</th><th class="n">Taarcut m</th><th>Source file</th><th></th></tr></thead><tbody>
-  ${ds.map(x => { const d = S.days[x], t = dayTotals(d.rolls); if (!d.rolls.length) { const p = Object.values(d.production || {}).reduce((a, b) => a + (+b || 0), 0); return `<tr><td><a href="#daily" onclick="S.selDate='${x}';S.selMac=null">${fmtDate(x)}</a></td><td class="n"><span class="pill warning">not uploaded</span></td><td class="n">${fmt(p)}</td><td class="n">–</td><td class="n">–</td><td class="n">–</td><td class="n">–</td><td class="muted" style="font-size:12px">${esc(d.source)}</td><td class="n">${canW() ? `<button class="btn sm" onclick="S.prodDate='${x}';S.prodPending=null;location.hash='production'">Production</button> ` : ''}${isAdmin || demoMode ? `<button class="btn sm danger" onclick="askDelete('${x}')">Delete</button>` : ''}</td></tr>`; } const p = Object.values(d.production || {}).reduce((a, b) => a + (+b || 0), 0); const hp = Object.keys(d.production || {}).length;
-    return `<tr><td><a href="#daily" onclick="S.selDate='${x}';S.selMac=null">${fmtDate(x)}</a></td><td class="n">${t.takas}</td><td class="n">${hp ? fmt(p) : '<span class="pill warning">missing</span>'}</td><td class="n">${fmt(t.mtr)}</td><td class="n">${zPill(t.f100)}</td><td class="n">${t.red} <span class="muted">(${fmt(t.redPct, 1)}%)</span></td><td class="n">${fmt(t.cutM)}</td><td class="muted" style="font-size:12px">${esc(d.source)}</td><td class="n">${canW() ? `<button class="btn sm" onclick="S.prodDate='${x}';S.prodPending=null;location.hash='production'">Production</button> ${isAdmin || demoMode ? `<button class="btn sm danger" onclick="askDelete('${x}')">Delete</button>` : ''}` : ''}</td></tr>`; }).join('')}
+  const actions = x => `${canW() ? `<button class="btn sm" onclick="S.prodDate='${x}';S.prodPending=null;location.hash='production'">Production</button> ` : ''}${isAdmin && !demoMode ? `<button class="btn sm" onclick="showVersions('${x}')">Versions</button> ` : ''}${isAdmin || demoMode ? `<button class="btn sm danger" onclick="askDelete('${x}')">Delete</button>` : ''}`;
+  const savedCell = d => `<td class="muted" style="font-size:12px;white-space:normal;min-width:150px">${esc(d.source || '')}${whenWho(d) ? `<div>${whenWho(d)}</div>` : ''}</td>`;
+  el.innerHTML = `<div class="pagehead"><div><div class="sub">${FNAME()}</div><h1>Saved days</h1></div><div class="row">${isAdmin && !demoMode ? '<button class="btn" onclick="showDeleted()">Restore a deleted day</button>' : ''}${demoMode ? '' : '<button class="btn" onclick="loadAll()">Refresh</button>'}</div></div>
+  ${isAdmin && !demoMode ? '<div class="sub" style="margin:-4px 0 10px">Every replaced or deleted day is kept. Use <b>Versions</b> to see or restore an earlier upload.</div>' : ''}
+  ${!ds.length ? `<div class="card empty"><b>Nothing saved yet</b></div>` : `<div class="card"><div class="tbl-wrap"><table><thead><tr><th>Date</th><th class="n">Takas checked</th><th class="n">Produced</th><th class="n">Metres</th><th class="n">F / 100 m</th><th class="n">Second takas</th><th>File / saved</th><th></th></tr></thead><tbody>
+  ${ds.map(x => { const d = S.days[x], t = dayTotals(d.rolls); const p = sumProd(d.production || {}); const hp = Object.keys(d.production || {}).length;
+    if (!d.rolls.length) return `<tr><td><a href="#daily" onclick="S.selDate='${x}';S.selMac=null">${fmtDate(x)}</a></td><td class="n"><span class="pill warning">not uploaded</span></td><td class="n">${fmt(p)}</td><td class="n">–</td><td class="n">–</td><td class="n">–</td>${savedCell(d)}<td class="n">${actions(x)}</td></tr>`;
+    return `<tr><td><a href="#daily" onclick="S.selDate='${x}';S.selMac=null">${fmtDate(x)}</a></td><td class="n">${t.takas}</td><td class="n">${hp ? fmt(p) : '<span class="pill warning">missing</span>'}</td><td class="n">${fmt(t.mtr)}</td><td class="n">${zPill(t.f100)}</td><td class="n">${t.red} <span class="muted">(${fmt(t.redPct, 1)}%)</span></td>${savedCell(d)}<td class="n">${actions(x)}</td></tr>`; }).join('')}
   </tbody></table></div></div>`}`;
+}
+// ----- earlier versions (admin) -----
+async function loadVersions(q) {
+  const { data, error } = await q;
+  if (error) { toast(/quality_days_versions/.test(error.message) ? 'Run quality_versions.sql in Supabase first' : 'Could not load versions: ' + error.message); return null; }
+  return data || [];
+}
+function versionRow(v, cur) {
+  const rolls = v.rolls || [], p = sumProd(v.production || {});
+  const t = new Date(v.replaced_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const by = v.replaced_by && S.names && S.names[v.replaced_by] ? ' by ' + esc(S.names[v.replaced_by]) : '';
+  return `<tr><td>${v.action === 'delete' ? 'Deleted' : 'Replaced'} ${t}${by}</td><td class="n">${rolls.length}</td><td class="n">${p || '–'}</td><td class="muted" style="font-size:12px">${esc(v.source || '')}</td><td class="n"><button class="btn sm" onclick="restoreVersion(${v.id})">Restore this</button></td></tr>`;
+}
+async function showVersions(date) {
+  const vs = await loadVersions(SB.from('quality_days_versions').select('id,date,rolls,production,prod_date,source,replaced_at,replaced_by,action').eq('factory', S.factory).eq('date', date).order('replaced_at', { ascending: false }).limit(30));
+  if (!vs) return; S.versions = vs;
+  const cur = S.days[date];
+  showModal(`<div class="row" style="justify-content:space-between"><h1 style="margin:0">${fmtDate(date)} — earlier versions</h1><button class="btn sm" data-close>Close</button></div>
+    <div class="sub" style="margin:6px 0 12px">Now saved: ${cur ? `${cur.rolls.length} takas checked, ${sumProd(cur.production || {})} produced${whenWho(cur) ? ' · ' + whenWho(cur) : ''}` : 'nothing'}. Restoring puts an earlier version back; the current one is kept as a version too.</div>
+    ${vs.length ? `<div class="tbl-wrap"><table><thead><tr><th>When it was replaced</th><th class="n">Takas</th><th class="n">Produced</th><th>File</th><th></th></tr></thead><tbody>${vs.map(v => versionRow(v, cur)).join('')}</tbody></table></div>` : '<div class="muted">No earlier versions — this day has only been saved once.</div>'}`);
+}
+async function showDeleted() {
+  const vs = await loadVersions(SB.from('quality_days_versions').select('id,date,rolls,production,prod_date,source,replaced_at,replaced_by,action').eq('factory', S.factory).eq('action', 'delete').order('replaced_at', { ascending: false }).limit(50));
+  if (!vs) return; S.versions = vs;
+  const gone = vs.filter(v => !S.days[v.date]);
+  showModal(`<div class="row" style="justify-content:space-between"><h1 style="margin:0">Deleted days — ${FNAME()}</h1><button class="btn sm" data-close>Close</button></div>
+    ${gone.length ? `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>Date · deleted</th><th class="n">Takas</th><th class="n">Produced</th><th>File</th><th></th></tr></thead><tbody>${gone.map(v => versionRow(v).replace('<td>', `<td><b>${fmtDate(v.date)}</b><br>`)).join('')}</tbody></table></div>` : '<div class="muted" style="margin-top:12px">No deleted days to restore.</div>'}`);
+}
+async function restoreVersion(id) {
+  const v = (S.versions || []).find(x => x.id === id); if (!v) return;
+  const cur = S.days[v.date];
+  const ok = await confirmBox({ title: `Restore ${fmtDate(v.date)}?`, html: `This puts back the version with <b>${(v.rolls || []).length} takas</b> and <b>${sumProd(v.production || {})}</b> produced${v.source ? ' (file <i>' + esc(v.source) + '</i>)' : ''}.${cur ? ` The version on screen now (${cur.rolls.length} takas) will be kept under Versions, so this can be undone.` : ''}`, ok: 'Restore' });
+  if (!ok) return;
+  const { error } = await SB.from('quality_days').upsert({ factory: S.factory, date: v.date, prod_date: v.prod_date, rolls: v.rolls || [], production: v.production || {}, source: v.source, saved_at: new Date().toISOString(), saved_by: SESSION.user.id });
+  if (error) { toast('Restore failed: ' + error.message); return; }
+  document.querySelectorAll('.modal-bg.pop').forEach(x => x.remove());
+  toast(`${fmtDate(v.date)} restored`); await loadAll();
 }
 function askDelete(x) {
   const bg = document.createElement('div'); bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal"><h2>Delete ${fmtDate(x)}?</h2><p class="sub">This removes the checking data and production for that day for everyone.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">Cancel</button><button class="btn primary" id="mYes" style="background:var(--critical);border-color:var(--critical)">Delete</button></div></div>`;
+  bg.innerHTML = `<div class="modal"><h2>Delete ${fmtDate(x)}?</h2><p class="sub">This removes the checking data and production for that day for everyone. It can be brought back later with <b>Restore a deleted day</b>.</p><div class="row" style="justify-content:flex-end"><button class="btn" id="mNo">Cancel</button><button class="btn primary" id="mYes" style="background:var(--critical);border-color:var(--critical)">Delete</button></div></div>`;
   document.body.appendChild(bg);
   bg.querySelector('#mNo').onclick = () => bg.remove();
   bg.querySelector('#mYes').onclick = async () => { try { await deleteDay(x); toast('Deleted'); } catch (e) { toast(e.message || 'Delete failed'); } bg.remove(); };
 }
 
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !demoMode && SB && SESSION && S.loadedAt && Date.now() - S.loadedAt > 3 * 60 * 1000 && !S.pending && !(S.prodPending && S.prodPending.status === 'review') && !document.querySelector('.modal-bg')) loadAll();
+});
 addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(render, 150); });
 route();
 initStore();
