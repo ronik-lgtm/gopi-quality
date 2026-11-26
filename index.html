@@ -1644,8 +1644,20 @@ async function buildReportPdf() {
     y -= RH + 4;
   };
   newPage();
-  const rows = D.rolls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.mac - b.mac);
+  // machine-wise: all of one machine's rolls (by date), then the next machine; upload order kept within a day
+  const order = new Map(D.rolls.map((r, i) => [r, i]));
+  const rows = D.rolls.slice().sort((a, b) => a.mac - b.mac || a.date.localeCompare(b.date) || order.get(a) - order.get(b));
+  const multi = repMacs().length > 1; let curMac = null;
   for (const r of rows) {
+    if (multi && r.mac !== curMac) {
+      // machine heading band (never left alone at the bottom of a page)
+      if (y - 2 * RH - 6 < M + 26) newPage();
+      curMac = r.mac; const p = D.perMac.find(q => q.m === r.mac) || {}; const ss = p.s || {};
+      const txt = `MACHINE ${r.mac}   |   ${p.chk || 0} roll${(p.chk || 0) === 1 ? '' : 's'} checked${D.produced ? ` of ${p.prod || 0} produced` : ''}   |   ${ss.red || 0} second quality${SHOW_STOP(D.t) ? `   |   ${ss.line || 0} stop lines` : ''}`;
+      page.drawRectangle({ x: M, y: y - RH - 2, width: W - 2 * M, height: RH + 2, color: rgb(0.16, 0.2, 0.3) });
+      page.drawText(fit(txt, W - 2 * M - 10, FB, 8), { x: M + 6, y: y - RH + 3.5, size: 8, font: FB, color: rgb(1, 1, 1) });
+      y -= RH + 2;
+    }
     if (y - RH < M + 26) newPage();
     const g = gradeOf(takaF100(r)); let x = M;
     for (const c of cols) {
@@ -1738,7 +1750,7 @@ async function downloadReportXlsx() {
   try {
     if (!window.XLSX) await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
     const R = S.rep, D = reportData(); const cols = reportColumns();
-    const rows = D.rolls.slice().sort((a, b) => a.date.localeCompare(b.date) || a.mac - b.mac);
+    const rows = D.rolls.slice().sort((a, b) => a.mac - b.mac || a.date.localeCompare(b.date));
     const aoa = [[`GOPI KNITTS - ROLL CHECKING REPORT - ${FNAME().toUpperCase()}`], [`${repLabel()}, ${ddmmyyyy(R.from)} to ${ddmmyyyy(R.to)}`], [],
       cols.map(c => c[0]).concat(['PER 100 M', 'GRADE'])];
     for (const r of rows) { const f = takaF100(r); aoa.push(cols.map(c => { const v = c[2](r); return v === '' ? '' : (typeof v === 'number' || /^\d+(\.\d+)?$/.test(String(v)) && c[0] !== 'DATE' ? +v : v); }).concat([f == null ? '' : +f.toFixed(2), gradeWord(gradeOf(f))])); }
